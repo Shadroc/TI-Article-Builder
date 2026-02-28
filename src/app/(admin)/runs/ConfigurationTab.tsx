@@ -20,8 +20,16 @@ const IMAGE_MODELS = [
   { value: "dall-e-3", label: "DALL-E 3" },
 ];
 
+type HeadlinesDateMode = "today" | "yesterday" | "custom";
+
 export default function ConfigurationTab({ config, sites }: ConfigurationTabProps) {
   const [local, setLocal] = useState<PipelineConfig | null>(config);
+  const [headlinesDateMode, setHeadlinesDateMode] = useState<HeadlinesDateMode>(() => {
+    const d = config?.headlines_date;
+    if (d === "today" || d === "yesterday") return d;
+    if (d?.trim()) return "custom";
+    return "today";
+  });
   const [isPending, startTransition] = useTransition();
   const [saved, setSaved] = useState(false);
 
@@ -29,8 +37,14 @@ export default function ConfigurationTab({ config, sites }: ConfigurationTabProp
 
   function save() {
     if (!local) return;
+    const toSave = { ...local };
+    if (headlinesDateMode === "today" || headlinesDateMode === "yesterday") {
+      toSave.headlines_date = headlinesDateMode;
+    } else if (headlinesDateMode === "custom" && !toSave.headlines_date?.trim()) {
+      toSave.headlines_date = "today";
+    }
     startTransition(async () => {
-      await updatePipelineConfig(local);
+      await updatePipelineConfig(toSave);
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
     });
@@ -61,6 +75,55 @@ export default function ConfigurationTab({ config, sites }: ConfigurationTabProp
             onChange={(e) => setLocal({ ...local, headlines_to_fetch: Number(e.target.value) })}
             className="w-full rounded border border-[#1a1b22] bg-[#0d0e13] px-3 py-2 font-mono text-sm text-white focus:border-blue-500 focus:outline-none"
           />
+        </div>
+
+        {/* Headlines date */}
+        <div className="col-span-2">
+          <label className="mb-1.5 block font-mono text-[10px] uppercase tracking-wider text-[#3b3d4a]">
+            Headlines Date
+          </label>
+          <div className="flex gap-3 items-end">
+            <select
+              value={headlinesDateMode}
+              onChange={(e) => {
+                const v = e.target.value as HeadlinesDateMode;
+                setHeadlinesDateMode(v);
+                setLocal({
+                  ...local,
+                  headlines_date:
+                    v === "custom"
+                      ? (local.headlines_date && local.headlines_date !== "today" && local.headlines_date !== "yesterday"
+                          ? local.headlines_date
+                          : "")
+                      : v,
+                });
+              }}
+              className="rounded border border-[#1a1b22] bg-[#0d0e13] px-3 py-2 font-mono text-sm text-white focus:border-blue-500 focus:outline-none"
+            >
+              <option value="today">Today</option>
+              <option value="yesterday">Yesterday</option>
+              <option value="custom">Custom range</option>
+            </select>
+            {headlinesDateMode === "custom" ? (
+              <div className="flex-1">
+                <input
+                  type="text"
+                  placeholder="MMDDYYYY-MMDDYYYY (e.g. 01012024-01152024)"
+                  value={
+                    local.headlines_date &&
+                    local.headlines_date !== "today" &&
+                    local.headlines_date !== "yesterday"
+                      ? local.headlines_date
+                      : ""
+                  }
+                  onChange={(e) =>
+                    setLocal({ ...local, headlines_date: e.target.value })
+                  }
+                  className="w-full rounded border border-[#1a1b22] bg-[#0d0e13] px-3 py-2 font-mono text-sm text-white focus:border-blue-500 focus:outline-none placeholder:text-[#6b6d7a]"
+                />
+              </div>
+            ) : null}
+          </div>
         </div>
 
         {/* Publish status */}

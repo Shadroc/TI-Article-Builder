@@ -19,6 +19,8 @@ export class CancelledError extends Error {
 export interface PipelineOptions {
   trigger: "cron" | "manual";
   articleCount?: number;
+  /** StockNews date: "today" | "yesterday" | "MMDDYYYY-MMDDYYYY" */
+  headlinesDate?: string;
 }
 
 async function isCancelled(runId: string): Promise<boolean> {
@@ -95,8 +97,9 @@ export async function runPipeline(options: PipelineOptions): Promise<{
 
     await checkpoint(runId);
 
+    const headlinesDate = options.headlinesDate?.trim() || "today";
     const headlines = await withRetry("fetch_headlines", () =>
-      fetchAndExpandHeadlines(options.articleCount ?? 6)
+      fetchAndExpandHeadlines(options.articleCount ?? 6, headlinesDate)
     );
     await updateStep(fetchStepId, {
       status: "completed",

@@ -12,13 +12,14 @@ export async function GET(request: NextRequest) {
 
   const { data: config } = await supabase()
     .from("pipeline_config")
-    .select("headlines_to_fetch")
+    .select("headlines_to_fetch, headlines_date")
     .limit(1)
     .single();
 
   const articleCount = Math.min(config?.headlines_to_fetch ?? 6, 20);
+  const headlinesDate = config?.headlines_date ?? "today";
 
-  const result = await runPipeline({ trigger: "cron", articleCount });
+  const result = await runPipeline({ trigger: "cron", articleCount, headlinesDate });
 
   return NextResponse.json({
     runId: result.runId,

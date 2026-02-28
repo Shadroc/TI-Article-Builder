@@ -1,4 +1,5 @@
 import { env } from "@/lib/env";
+import { logger } from "@/lib/logger";
 
 export interface StockNewsHeadline {
   news_id: string;
@@ -19,10 +20,13 @@ interface ArticleExcerptResponse {
   data: StockNewsHeadline[];
 }
 
-export async function fetchTrendingHeadlines(items = 6): Promise<StockNewsHeadline[]> {
+export async function fetchTrendingHeadlines(
+  items = 6,
+  date: string = "today"
+): Promise<StockNewsHeadline[]> {
   const params = new URLSearchParams({
     token: env().STOCKNEWS_API_TOKEN,
-    date: "today",
+    date,
     items: String(items),
   });
 
@@ -32,7 +36,14 @@ export async function fetchTrendingHeadlines(items = 6): Promise<StockNewsHeadli
 
   if (!res.ok) throw new Error(`StockNews trending failed: ${res.status}`);
   const json: TrendingResponse = await res.json();
-  return json.data ?? [];
+  const data = json.data ?? [];
+  logger.info("StockNews trending-headlines", {
+    requested: items,
+    returned: data.length,
+    date,
+    mismatch: data.length !== items,
+  });
+  return data;
 }
 
 export async function fetchArticleExcerpt(newsId: string): Promise<StockNewsHeadline | null> {

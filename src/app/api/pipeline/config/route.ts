@@ -35,6 +35,9 @@ export async function PUT(request: NextRequest) {
   if (typeof body.headlines_to_fetch === "number") {
     updates.headlines_to_fetch = Math.min(Math.max(body.headlines_to_fetch, 1), 20);
   }
+  if (typeof body.headlines_date === "string") {
+    updates.headlines_date = body.headlines_date.trim() || "today";
+  }
   if (body.publish_status === "draft" || body.publish_status === "publish") {
     updates.publish_status = body.publish_status;
   }

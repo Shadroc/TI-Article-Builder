@@ -59,6 +59,8 @@ export interface WorkflowRun {
 export interface PipelineConfig {
   id?: string;
   headlines_to_fetch: number;
+  /** StockNews date: "today" | "yesterday" | "MMDDYYYY-MMDDYYYY" (custom range) */
+  headlines_date?: string;
   publish_status: "draft" | "publish";
   target_sites: string[];
   writer_model: string;

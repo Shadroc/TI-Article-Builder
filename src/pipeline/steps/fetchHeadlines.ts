@@ -3,6 +3,7 @@ import {
   fetchArticleExcerpt,
   StockNewsHeadline,
 } from "@/integrations/stocknews";
+import { logger } from "@/lib/logger";
 
 export interface HeadlineItem {
   news_id: string;
@@ -13,8 +14,19 @@ export interface HeadlineItem {
   date: string;
 }
 
-export async function fetchAndExpandHeadlines(count = 6): Promise<HeadlineItem[]> {
-  const headlines = await fetchTrendingHeadlines(count);
+export async function fetchAndExpandHeadlines(
+  count = 6,
+  date: string = "today"
+): Promise<HeadlineItem[]> {
+  logger.info("fetchAndExpandHeadlines: requesting headlines", {
+    requestedCount: count,
+    date,
+  });
+  const headlines = await fetchTrendingHeadlines(count, date);
+  logger.info("fetchAndExpandHeadlines: raw headlines received", {
+    requestedCount: count,
+    receivedCount: headlines.length,
+  });
   const results: HeadlineItem[] = [];
 
   for (const headline of headlines) {

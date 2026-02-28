@@ -27,7 +27,7 @@ Automated financial article generation and multi-site WordPress publishing pipel
 
 ```bash
 cp .env.example .env.local
-# Fill in all required API keys and credentials
+# Fill in all required API keys and credentials (including ADMIN_PASSWORD for /runs)
 npm install
 npm run dev
 ```
@@ -52,3 +52,4 @@ Deploy to Vercel. The cron schedule is configured in `vercel.json`.
 ## Admin Dashboard
 
 Visit `/runs` to see pipeline run history, trigger new runs, and inspect per-step logs.
+Requires `ADMIN_PASSWORD` in `.env.local`; you will be prompted to sign in.

@@ -7,13 +7,14 @@ export async function triggerPipelineRun() {
   const db = supabase();
   const { data: config } = await db
     .from("pipeline_config")
-    .select("headlines_to_fetch")
+    .select("headlines_to_fetch, headlines_date")
     .limit(1)
     .single();
 
   const articleCount = Math.min(config?.headlines_to_fetch ?? 6, 20);
+  const headlinesDate = config?.headlines_date ?? "today";
 
-  runPipeline({ trigger: "manual", articleCount }).catch((err) => {
+  runPipeline({ trigger: "manual", articleCount, headlinesDate }).catch((err) => {
     console.error("Pipeline run failed:", err);
   });
 
