@@ -1,4 +1,10 @@
-import { uploadMedia, createPost, setFeaturedImage } from "@/integrations/wordpress";
+import {
+  uploadMedia,
+  createPost,
+  setFeaturedImage,
+  updateRankMathMeta,
+} from "@/integrations/wordpress";
+import { logger } from "@/lib/logger";
 import { SiteArticle } from "./perSiteSeoAndRouting";
 import { ProcessedImage } from "./processImage";
 
@@ -28,6 +34,23 @@ export async function publishToWordPress(
   );
 
   await setFeaturedImage(site, post.id, media.id);
+
+  try {
+    await updateRankMathMeta(
+      site,
+      post.id,
+      siteArticle.metatitle,
+      siteArticle.metadescription,
+      siteArticle.keyword
+    );
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    logger.warn("RankMath meta update failed (non-fatal)", {
+      siteSlug: site.slug,
+      postId: post.id,
+      error: msg,
+    });
+  }
 
   return {
     siteSlug: site.slug,
