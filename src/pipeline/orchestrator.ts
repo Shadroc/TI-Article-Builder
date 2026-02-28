@@ -256,7 +256,9 @@ async function processOneArticle(
         siteArticle.metatitle,
         article.cleanedHtml,
         siteArticle.site.id,
-        wpResult
+        wpResult,
+        image.imageSource,
+        image.sourceImageUrl
       );
 
       await updateStep(publishStepId, {

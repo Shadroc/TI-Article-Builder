@@ -1,16 +1,20 @@
 import { searchImages, GoogleImageResult } from "@/integrations/google-cse";
-import { selectBestImage, editImage, generateImageEditPrompt } from "@/integrations/openai";
-import { downloadImage, resizeToWebp } from "@/integrations/image-processing";
+import { selectBestImage, editImage } from "@/integrations/openai";
+import { downloadImage, resizeToWebp, scrapeArticleImage } from "@/integrations/image-processing";
 import { RssFeedRow, PivotCatalogs } from "@/integrations/supabase";
 import type { EditorPrompts } from "@/integrations/supabase";
 import { ArticleResult } from "./generateArticle";
 import { getEditorConfig } from "@/lib/editor-config";
 import { DEFAULT_PIVOT_CATALOGS } from "@/lib/default-pivot-catalogs";
+import { N8N_EDIT_DIRECT_TEMPLATE } from "@/lib/default-editor-prompts";
+import { logger } from "@/lib/logger";
 
 export interface ProcessedImage {
   buffer: Buffer;
   mimeType: string;
   fileName: string;
+  imageSource: "og:image" | "img_url" | "google_cse";
+  sourceImageUrl: string;
 }
 
 async function downloadCandidateImages(
@@ -22,10 +26,10 @@ async function downloadCandidateImages(
 
   for (const item of candidates) {
     try {
-      const { buffer, mimeType } = await downloadImage(item.image.contextLink);
-      downloads.push({ url: item.image.contextLink, buffer, mimeType });
+      const { buffer, mimeType } = await downloadImage(item.link);
+      downloads.push({ url: item.link, buffer, mimeType });
     } catch (err) {
-      console.error(`Failed to download candidate image: ${item.image.contextLink}`, err);
+      console.error(`Failed to download candidate image: ${item.link}`, err);
     }
   }
 
@@ -39,36 +43,60 @@ export async function processArticleImage(
   const { editor_prompts: prompts, pivot_catalogs } = await getEditorConfig();
   const catalogs = pivot_catalogs ?? DEFAULT_PIVOT_CATALOGS;
 
-  let selectedBuffer: Buffer;
-  let selection: { subjectDescription: string; colorTarget: string; reason: string };
+  let sourceBuffer: Buffer | null = null;
+  let sourceMimeType = "image/jpeg";
+  let imageSource = "";
+  let sourceImageUrl = "";
 
-  const hasStockImage = !!rssItem.img_url;
-
-  if (hasStockImage) {
-    // Branch: use stock API image (matches n8n: Prepare Stock Image for AI → AI Agent)
-    try {
-      const { buffer } = await downloadImage(rssItem.img_url!);
-      const sel = await selectBestImage(
-        [rssItem.img_url!],
-        article.headline,
-        article.category,
-        article.categoryColor,
-        prompts ?? undefined,
-        catalogs
-      );
-      selection = {
-        subjectDescription: sel.subjectDescription,
-        colorTarget: sel.colorTarget,
-        reason: sel.reason,
-      };
-      selectedBuffer = buffer;
-    } catch (err) {
-      console.error("Stock image download failed, falling back to Google CSE:", err);
-      return fallbackToGoogleSearch(rssItem, article, catalogs);
+  // Priority 1: og:image scraped from the source article URL (publisher's own editorial image)
+  try {
+    const ogImageUrl = await scrapeArticleImage(rssItem.link);
+    if (ogImageUrl) {
+      const { buffer, mimeType } = await downloadImage(ogImageUrl);
+      sourceBuffer = buffer;
+      sourceMimeType = mimeType;
+      imageSource = "og:image";
+      sourceImageUrl = ogImageUrl;
+      logger.info("Image source: og:image", { url: ogImageUrl });
     }
-  } else {
-    return fallbackToGoogleSearch(rssItem, article, catalogs);
+  } catch (err) {
+    logger.info("og:image scrape failed, trying img_url", { err: String(err) });
   }
+
+  // Priority 2: img_url from StockNewsAPI
+  if (!sourceBuffer && rssItem.img_url) {
+    try {
+      const { buffer, mimeType } = await downloadImage(rssItem.img_url);
+      sourceBuffer = buffer;
+      sourceMimeType = mimeType;
+      imageSource = "img_url";
+      sourceImageUrl = rssItem.img_url;
+      logger.info("Image source: img_url from StockNewsAPI");
+    } catch (err) {
+      logger.info("img_url download failed, falling back to Google CSE", { err: String(err) });
+    }
+  }
+
+  // Priority 3: Google CSE fallback
+  if (!sourceBuffer) {
+    logger.info("Image source: Google CSE fallback");
+    return fallbackToGoogleSearch(rssItem, article, catalogs, prompts);
+  }
+
+  const sel = await selectBestImage(
+    [{ buffer: sourceBuffer, mimeType: sourceMimeType }],
+    article.headline,
+    article.category,
+    article.categoryColor,
+    prompts ?? undefined,
+    catalogs
+  );
+
+  const selection = {
+    subjectDescription: sel.subjectDescription,
+    colorTarget: sel.colorTarget,
+    reason: sel.reason,
+  };
 
   const editPrompt = await buildImageEditPrompt(
     selection,
@@ -78,21 +106,35 @@ export async function processArticleImage(
     catalogs
   );
 
-  const editedBuffer = await editImage(selectedBuffer, editPrompt);
+  logger.info("IMAGE DEBUG", {
+    imageSource,
+    subjectDescription: selection.subjectDescription,
+    colorTarget: selection.colorTarget,
+    hexColor: article.categoryColor,
+    headline: article.headline,
+    bufferSize: sourceBuffer.length,
+    promptPreview: editPrompt.substring(0, 300),
+  });
 
-  // Resize to WebP
+  const editedBuffer = await editImage(sourceBuffer, editPrompt, sourceMimeType);
   const { buffer: finalBuffer } = await resizeToWebp(editedBuffer);
   const fileName = `${slugify(article.headline)}-${Date.now()}.webp`;
 
-  return { buffer: finalBuffer, mimeType: "image/webp", fileName };
+  return {
+    buffer: finalBuffer,
+    mimeType: "image/webp",
+    fileName,
+    imageSource: imageSource as "og:image" | "img_url",
+    sourceImageUrl,
+  };
 }
 
 async function fallbackToGoogleSearch(
   rssItem: RssFeedRow,
   article: ArticleResult,
-  catalogs: PivotCatalogs
+  catalogs: PivotCatalogs,
+  prompts: EditorPrompts | null
 ): Promise<ProcessedImage> {
-  const { editor_prompts: prompts } = await getEditorConfig();
 
   const imageResults = await searchImages(rssItem.title);
   if (imageResults.length === 0) {
@@ -104,9 +146,8 @@ async function fallbackToGoogleSearch(
     throw new Error("Failed to download any candidate images");
   }
 
-  const candidateUrls = candidates.map((c) => c.url);
   const selection = await selectBestImage(
-    candidateUrls,
+    candidates.map((c) => ({ buffer: c.buffer, mimeType: c.mimeType })),
     article.headline,
     article.category,
     article.categoryColor,
@@ -115,7 +156,10 @@ async function fallbackToGoogleSearch(
   );
 
   const selectedIdx = Math.min(selection.selectedIndex, candidates.length - 1);
-  const selectedBuffer = candidates[selectedIdx].buffer;
+  const selectedCandidate = candidates[selectedIdx];
+  const selectedBuffer = selectedCandidate.buffer;
+  const selectedMimeType = selectedCandidate.mimeType;
+  const selectedUrl = selectedCandidate.url;
 
   const editPrompt = await buildImageEditPrompt(
     {
@@ -129,11 +173,20 @@ async function fallbackToGoogleSearch(
     catalogs
   );
 
-  const editedBuffer = await editImage(selectedBuffer, editPrompt);
+  logger.info("IMAGE DEBUG", {
+    subjectDescription: selection.subjectDescription,
+    colorTarget: selection.colorTarget,
+    hexColor: article.categoryColor,
+    headline: article.headline,
+    bufferSize: selectedBuffer.length,
+    promptPreview: editPrompt.substring(0, 300),
+  });
+
+  const editedBuffer = await editImage(selectedBuffer, editPrompt, selectedMimeType);
   const { buffer: finalBuffer } = await resizeToWebp(editedBuffer);
   const fileName = `${slugify(article.headline)}-${Date.now()}.webp`;
 
-  return { buffer: finalBuffer, mimeType: "image/webp", fileName };
+  return { buffer: finalBuffer, mimeType: "image/webp", fileName, imageSource: "google_cse" as const, sourceImageUrl: selectedUrl };
 }
 
 function buildImageEditPrompt(
@@ -141,26 +194,25 @@ function buildImageEditPrompt(
   hexColor: string,
   headline: string,
   prompts: EditorPrompts | null | undefined,
-  catalogs: PivotCatalogs
+  _catalogs: PivotCatalogs
 ): Promise<string> {
-  const directTemplate = prompts?.image_edit_direct_template?.trim();
-  if (directTemplate) {
-    const prompt = directTemplate
-      .replace(/\{\{subjectDescription\}\}/g, selection.subjectDescription)
-      .replace(/\{\{reason\}\}/g, selection.reason)
-      .replace(/\{\{colorTarget\}\}/g, selection.colorTarget)
-      .replace(/\{\{hexColor\}\}/g, hexColor)
-      .replace(/\{\{headline\}\}/g, headline);
-    return Promise.resolve(prompt);
+  const directTemplate = (prompts?.image_edit_direct_template?.trim() || N8N_EDIT_DIRECT_TEMPLATE).trim();
+  const isFromConfig = !!prompts?.image_edit_direct_template?.trim();
+  if (isFromConfig) {
+    logger.info("Image edit: using direct edit template from config", {
+      step: "process_image",
+      directTemplateChars: directTemplate.length,
+    });
+  } else {
+    logger.info("Image edit: using built-in default edit template", { step: "process_image" });
   }
-  return generateImageEditPrompt(
-    selection.subjectDescription,
-    selection.colorTarget,
-    hexColor,
-    headline,
-    prompts ?? undefined,
-    catalogs
-  );
+  const prompt = directTemplate
+    .replace(/\{\{subjectDescription\}\}/g, selection.subjectDescription)
+    .replace(/\{\{reason\}\}/g, selection.reason)
+    .replace(/\{\{colorTarget\}\}/g, selection.colorTarget)
+    .replace(/\{\{hexColor\}\}/g, hexColor)
+    .replace(/\{\{headline\}\}/g, headline);
+  return Promise.resolve(prompt);
 }
 
 function slugify(text: string): string {

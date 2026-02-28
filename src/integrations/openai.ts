@@ -1,7 +1,8 @@
 import OpenAI from "openai";
 import { env } from "@/lib/env";
-import type { EditorPrompts, PivotCatalogs } from "@/integrations/supabase";
+import type { EditorPrompts } from "@/integrations/supabase";
 import { formatPivotCatalogsForAI } from "@/lib/editor-config";
+import type { PivotCatalogs } from "@/integrations/supabase";
 
 let _client: OpenAI | null = null;
 
@@ -19,23 +20,31 @@ export interface ImageSelectionResult {
   colorTarget: string;
 }
 
+export interface ImageCandidate {
+  buffer: Buffer;
+  mimeType: string;
+}
+
 const DEFAULT_SELECTION_SYSTEM = "You are a senior photo editor for an online newsroom.";
 
 export async function selectBestImage(
-  imageUrls: string[],
+  candidates: ImageCandidate[],
   articleTitle: string,
   category: string,
   brandHexColor?: string,
   prompts?: Pick<EditorPrompts, "image_selection_system" | "image_selection_user">,
   pivotCatalogs?: PivotCatalogs | null
 ): Promise<ImageSelectionResult> {
-  const imageContent = imageUrls.map((url) => ({
+  const imageContent = candidates.map((c) => ({
     type: "image_url" as const,
-    image_url: { url, detail: "low" as const },
+    image_url: {
+      url: `data:${c.mimeType};base64,${c.buffer.toString("base64")}`,
+      detail: "auto" as const,
+    },
   }));
 
   const colorHint = brandHexColor
-    ? `\nBrand accent color (hex) for this category: ${brandHexColor}. When choosing colorTarget, suggest an element where this color will be applied (e.g. accent, background tint, clothing).`
+    ? `\nBrand accent colour for selective-colour treatment: ${brandHexColor}. The colorTarget MUST be a specific, prominent NON-HUMAN physical object in the foreground (e.g. a stethoscope, a vehicle, a product, machinery, a building facade). Do NOT suggest backgrounds, skies, walls, environments, or any part of a human (skin, face, hair, clothing).`
     : "";
 
   const systemMessage = (prompts?.image_selection_system ?? DEFAULT_SELECTION_SYSTEM) + formatPivotCatalogsForAI(pivotCatalogs);
@@ -45,11 +54,11 @@ export async function selectBestImage(
         .replace(/\{\{articleTitle\}\}/g, articleTitle)
         .replace(/\{\{category\}\}/g, category)
         .replace(/\{\{colorHint\}\}/g, colorHint)
-        .replace(/\{\{imageCount\}\}/g, String(imageUrls.length))
-        .replace(/\{\{imageCountMax\}\}/g, String(Math.max(0, imageUrls.length - 1)))
+        .replace(/\{\{imageCount\}\}/g, String(candidates.length))
+        .replace(/\{\{imageCountMax\}\}/g, String(Math.max(0, candidates.length - 1)))
     : `ROLE: You are a photo editor selecting the best reference image for an article titled "${articleTitle}" in category "${category}".${colorHint}
 
-You have ${imageUrls.length} candidate images (indexed 0-${imageUrls.length - 1}).
+You have ${candidates.length} candidate images (indexed 0-${candidates.length - 1}).
 
 Return ONLY a JSON object with these fields:
 - selectedIndex: number (0-based index of best image)
@@ -73,87 +82,52 @@ Return ONLY a JSON object with these fields:
   return JSON.parse(text) as ImageSelectionResult;
 }
 
-const DEFAULT_EDIT_SYSTEM = `You are a senior photo editor for an online newsroom. Your task is to write a single, concise prompt for an AI image editor (e.g. DALL-E / GPT Image) that will transform a reference photo into an editorial image.
-
-RULES:
-- The prompt must describe creating a new editorial photo. Include: the main subject (from subjectDescription), and instruct applying the brand accent color (hex {{hexColor}}) to the element described in colorTarget.
-- Context: news article titled "{{headline}}".
-- Style: professional newsroom photography, clean composition, editorial quality.
-- CRITICAL: The prompt must explicitly forbid any text, words, letters, numbers, captions, watermarks, or logos in the image. Include a phrase like "Do not include any text or words in the image."
-- Output ONLY a JSON object with one field: "prompt" (string). The string is the exact prompt to send to the image editor, nothing else.`;
-
-const DEFAULT_EDIT_USER = `Write the image edit prompt.
-
-- Subject: {{subjectDescription}}
-- Apply brand color {{hexColor}} to: {{colorTarget}}
-- Article headline: "{{headline}}"
-
-Return JSON: { "prompt": "your single prompt string here" }`;
-
-/** Generate the image edit prompt on the fly via AI (matches n8n "prompt created by AI Agent"). */
-export async function generateImageEditPrompt(
-  subjectDescription: string,
-  colorTarget: string,
-  hexColor: string,
-  headline: string,
-  prompts?: Pick<EditorPrompts, "image_edit_system" | "image_edit_user">,
-  pivotCatalogs?: PivotCatalogs | null
-): Promise<string> {
-  const replace = (t: string) =>
-    t
-      .replace(/\{\{subjectDescription\}\}/g, subjectDescription)
-      .replace(/\{\{colorTarget\}\}/g, colorTarget)
-      .replace(/\{\{hexColor\}\}/g, hexColor)
-      .replace(/\{\{headline\}\}/g, headline);
-
-  const systemMessage = replace(prompts?.image_edit_system ?? DEFAULT_EDIT_SYSTEM) + formatPivotCatalogsForAI(pivotCatalogs);
-  const userMessage = replace(prompts?.image_edit_user ?? DEFAULT_EDIT_USER);
-
-  const res = await openai().chat.completions.create({
-    model: "gpt-4o",
-    response_format: { type: "json_object" },
-    messages: [
-      { role: "system", content: systemMessage },
-      { role: "user", content: userMessage },
-    ],
-  });
-
-  const text = res.choices[0]?.message?.content ?? "{}";
-  const parsed = JSON.parse(text) as { prompt?: string };
-  const prompt = parsed?.prompt?.trim();
-  if (!prompt) throw new Error("generateImageEditPrompt returned no prompt");
-  return prompt;
-}
-
 const IMAGE_EDIT_TIMEOUT_MS = 3 * 60 * 1000; // 3 minutes
 
 export async function editImage(
   imageBuffer: Buffer,
   prompt: string,
-  mimeType = "image/png"
+  mimeType = "image/jpeg"
 ): Promise<Buffer> {
+  const ext = mimeType === "image/png" ? "png" : "jpg";
   const uint8 = new Uint8Array(imageBuffer);
   const blob = new Blob([uint8], { type: mimeType });
-  const file = new File([blob], "image.png", { type: mimeType });
+
+  const formData = new FormData();
+  formData.append("image", blob, `image.${ext}`);
+  formData.append("prompt", prompt);
+  formData.append("model", "gpt-image-1");
+  formData.append("n", "1");
+  formData.append("size", "1536x1024");
+  formData.append("quality", "high");
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), IMAGE_EDIT_TIMEOUT_MS);
 
   try {
-    const res = await openai().images.edit(
-      {
-        model: "gpt-image-1",
-        image: file,
-        prompt,
-        n: 1,
-        size: "1536x1024",
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        quality: "medium" as any,
+    const res = await fetch("https://api.openai.com/v1/images/edits", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${env().OPENAI_API_KEY}`,
       },
-      { signal: controller.signal }
-    );
+      body: formData,
+      signal: controller.signal,
+    });
 
-    const b64 = res.data?.[0]?.b64_json;
+    if (!res.ok) {
+      const errBody = await res.text();
+      let errMessage = `OpenAI image edit failed: ${res.status} ${res.statusText}`;
+      try {
+        const errJson = JSON.parse(errBody) as { error?: { message?: string } };
+        if (errJson?.error?.message) errMessage = errJson.error.message;
+      } catch {
+        if (errBody) errMessage += ` — ${errBody.slice(0, 200)}`;
+      }
+      throw new Error(errMessage);
+    }
+
+    const data = (await res.json()) as { data?: { b64_json?: string }[] };
+    const b64 = data?.data?.[0]?.b64_json;
     if (!b64) throw new Error("OpenAI image edit returned no data");
     return Buffer.from(b64, "base64");
   } catch (err) {

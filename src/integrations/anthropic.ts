@@ -34,7 +34,7 @@ export async function writeArticle(
 
   const res = await anthropic().messages.create({
     model: "claude-sonnet-4-20250514",
-    max_tokens: 4096,
+    max_tokens: 8096,
     system,
     messages: [{ role: "user", content: userPrompt }],
   });

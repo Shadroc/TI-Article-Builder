@@ -19,7 +19,6 @@ export async function searchReferences(query: string): Promise<JinaResponse> {
     headers: {
       Authorization: `Bearer ${env().JINA_API_KEY}`,
       Accept: "application/json",
-      "X-Respond-With": "no-content",
     },
     signal: AbortSignal.timeout(30_000),
   });

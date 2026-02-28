@@ -40,6 +40,8 @@ export interface AiArticleRow {
   wp_post_id?: number;
   wp_media_id?: number;
   wp_image_url?: string;
+  image_source?: string;
+  source_image_url?: string;
   created_at?: string;
 }
 
@@ -104,9 +106,7 @@ export interface EditorPrompts {
   article_writing_user: string;
   image_selection_system: string;
   image_selection_user: string;
-  image_edit_system: string;
-  image_edit_user: string;
-  /** When set, sent directly to OpenAI images/edits (placeholders replaced). When null/empty, use LLM-generated prompt. */
+  /** Sent directly to OpenAI images/edits after replacing placeholders. Falls back to N8N_EDIT_DIRECT_TEMPLATE when empty. */
   image_edit_direct_template?: string | null;
 }
 

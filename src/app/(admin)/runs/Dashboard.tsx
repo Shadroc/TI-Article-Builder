@@ -160,7 +160,7 @@ export default function Dashboard({
   const [tab, setTab] = useState<Tab>("pipeline");
   const [runs, setRuns] = useState(initialRuns);
   const [steps, setSteps] = useState(initialSteps);
-  const [config] = useState(initialConfig);
+  const [config, setConfig] = useState(initialConfig);
   const [articles, setArticles] = useState(initialArticles);
   const [selectedArticleId, setSelectedArticleId] = useState<string | null>(null);
   const [isStarting, setIsStarting] = useState(false);
@@ -177,6 +177,7 @@ export default function Dashboard({
       setRuns(data.runs);
       setSteps(data.latestSteps);
       setArticles(data.articles);
+      setConfig(data.config as PipelineConfig | null);
       if (data.runs[0]?.status !== "running") {
         setIsStarting(false);
       }
@@ -330,7 +331,10 @@ export default function Dashboard({
           {tab === "prompts" && (
             <div className="flex flex-col gap-4 p-4">
               <ImageGenerationFlow />
-              <PromptsTab editorPrompts={config?.editor_prompts ?? undefined} />
+              <PromptsTab
+                editorPrompts={config?.editor_prompts ?? undefined}
+                onSaved={poll}
+              />
             </div>
           )}
 

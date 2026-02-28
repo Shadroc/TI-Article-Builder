@@ -9,18 +9,30 @@ export interface UpsertResult {
 export async function upsertRssFeedItem(item: HeadlineItem): Promise<UpsertResult> {
   const db = supabase();
 
-  // Check for existing by link (idempotent — no unique on link in Automated News TLDR)
-  const { data: existing } = await db
+  // Deterministic lookup by link; avoids maybeSingle() failure when historical duplicates exist.
+  const { data: existingRows, error: existingError } = await db
     .from("rss_feed")
     .select("*")
     .eq("link", item.news_url)
-    .maybeSingle();
+    .order("id", { ascending: true })
+    .limit(1);
+
+  if (existingError) {
+    throw new Error(`Failed to query existing RSS feed item: ${existingError.message}`);
+  }
+
+  const existing = existingRows?.[0];
 
   if (existing) {
-    await db
+    const { error: updateError } = await db
       .from("rss_feed")
       .update({ should_draft_article: true })
       .eq("id", existing.id);
+
+    if (updateError) {
+      throw new Error(`Failed to update existing RSS feed item: ${updateError.message}`);
+    }
+
     return { row: existing as RssFeedRow, alreadyExisted: true };
   }
 

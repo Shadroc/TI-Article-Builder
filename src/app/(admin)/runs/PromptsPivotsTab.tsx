@@ -139,37 +139,27 @@ export default function PromptsPivotsTab({ editorPrompts, categoryMap, pivotCata
         </div>
       </section>
 
-      {/* Image edit prompt generator */}
+      {/* Image edit template */}
       <section className="rounded-lg border border-[#1a1b22] bg-[#0d0e13] p-4">
         <h2 className="mb-3 font-mono text-xs font-semibold uppercase tracking-wider text-[#6b6d7a]">
-          Image edit prompt generator
+          Image edit template
         </h2>
         <p className="mb-3 font-mono text-[11px] text-[#3b3d4a]">
+          Sent directly to the OpenAI image edit API after replacing placeholders.
+        </p>
+        <p className="mb-3 font-mono text-[11px] text-[#3b3d4a]">
           Placeholders: <code className="text-blue-400">{`{{subjectDescription}}`}</code>,{" "}
+          <code className="text-blue-400">{`{{reason}}`}</code>,{" "}
           <code className="text-blue-400">{`{{colorTarget}}`}</code>,{" "}
           <code className="text-blue-400">{`{{hexColor}}`}</code>,{" "}
           <code className="text-blue-400">{`{{headline}}`}</code>
         </p>
-        <div className="grid gap-4">
-          <div>
-            <label className="mb-1 block font-mono text-[10px] text-[#3b3d4a]">System message</label>
-            <textarea
-              value={prompts.image_edit_system}
-              onChange={(e) => setPrompts((p) => ({ ...p, image_edit_system: e.target.value }))}
-              rows={10}
-              className="w-full rounded border border-[#1a1b22] bg-[#050507] px-3 py-2 font-mono text-xs text-white focus:border-blue-500 focus:outline-none"
-            />
-          </div>
-          <div>
-            <label className="mb-1 block font-mono text-[10px] text-[#3b3d4a]">User prompt template</label>
-            <textarea
-              value={prompts.image_edit_user}
-              onChange={(e) => setPrompts((p) => ({ ...p, image_edit_user: e.target.value }))}
-              rows={6}
-              className="w-full rounded border border-[#1a1b22] bg-[#050507] px-3 py-2 font-mono text-xs text-white focus:border-blue-500 focus:outline-none"
-            />
-          </div>
-        </div>
+        <textarea
+          value={prompts.image_edit_direct_template ?? ""}
+          onChange={(e) => setPrompts((p) => ({ ...p, image_edit_direct_template: e.target.value || null }))}
+          rows={22}
+          className="w-full rounded border border-[#1a1b22] bg-[#050507] px-3 py-2 font-mono text-xs leading-relaxed text-white focus:border-blue-500 focus:outline-none"
+        />
       </section>
 
       <div className="flex gap-2">

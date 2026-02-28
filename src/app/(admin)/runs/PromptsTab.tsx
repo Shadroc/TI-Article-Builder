@@ -3,15 +3,17 @@
 import { useState, useTransition } from "react";
 import { EditorPrompts } from "@/integrations/supabase";
 import { updateEditorConfig } from "./actions";
-import { DEFAULT_PROMPTS, N8N_EDIT_DIRECT_TEMPLATE } from "@/lib/default-editor-prompts";
+import { DEFAULT_PROMPTS } from "@/lib/default-editor-prompts";
 
 type SectionKey = "article" | "image_selection" | "image_edit";
 
 interface PromptsTabProps {
   editorPrompts: EditorPrompts | null | undefined;
+  /** Called after successful save so parent can refetch config and show updated saved status */
+  onSaved?: () => void | Promise<void>;
 }
 
-export default function PromptsTab({ editorPrompts }: PromptsTabProps) {
+export default function PromptsTab({ editorPrompts, onSaved }: PromptsTabProps) {
   const [prompts, setPrompts] = useState<EditorPrompts>(() => ({
     ...DEFAULT_PROMPTS,
     ...(editorPrompts ?? {}),
@@ -30,6 +32,7 @@ export default function PromptsTab({ editorPrompts }: PromptsTabProps) {
       if (!res.error) {
         setSaved(true);
         setTimeout(() => setSaved(false), 2000);
+        await onSaved?.();
       }
     });
   }
@@ -141,21 +144,20 @@ export default function PromptsTab({ editorPrompts }: PromptsTabProps) {
           onClick={() => toggle("image_edit")}
           className="flex w-full items-center justify-between px-4 py-3 text-left font-mono text-xs font-semibold uppercase tracking-wider text-[#6b6d7a] hover:bg-[#14151a]"
         >
-          Image edit prompt generator
+          Image edit template
           <span className="text-[#3b3d4a]">{openSection === "image_edit" ? "▼" : "▶"}</span>
         </button>
         {openSection === "image_edit" && (
           <div className="border-t border-[#1a1b22] p-4">
             <p className="mb-3 font-mono text-[11px] text-[#3b3d4a]">
-              When <strong>Direct edit template</strong> is set, it is sent to the image API after replacing placeholders (no LLM). When empty, the System/User prompts below are used to generate a prompt via LLM.
+              This template is sent directly to the OpenAI image edit API after replacing placeholders.
             </p>
-            <div className="mb-4">
-              <label className="mb-1 block font-mono text-[10px] text-[#3b3d4a]">Direct edit template (sent to API)</label>
+            <div>
+              <label className="mb-1 block font-mono text-[10px] text-[#3b3d4a]">Edit template (sent to API)</label>
               <textarea
-                value={prompts.image_edit_direct_template ?? N8N_EDIT_DIRECT_TEMPLATE}
+                value={prompts.image_edit_direct_template ?? ""}
                 onChange={(e) => setPrompts((p) => ({ ...p, image_edit_direct_template: e.target.value || null }))}
                 rows={22}
-                placeholder="Leave empty to use LLM-generated prompt from System/User below."
                 className="w-full rounded border border-[#1a1b22] bg-[#050507] px-3 py-2 font-mono text-xs leading-relaxed text-white focus:border-blue-500 focus:outline-none"
               />
               <p className="mt-1 font-mono text-[10px] text-[#3b3d4a]">
@@ -165,27 +167,11 @@ export default function PromptsTab({ editorPrompts }: PromptsTabProps) {
                 <code className="text-blue-400">{`{{hexColor}}`}</code>,{" "}
                 <code className="text-blue-400">{`{{headline}}`}</code>
               </p>
-            </div>
-            <p className="mb-2 font-mono text-[10px] text-[#3b3d4a]">Fallback (when direct template is empty):</p>
-            <div className="grid gap-4">
-              <div>
-                <label className="mb-1 block font-mono text-[10px] text-[#3b3d4a]">System message</label>
-                <textarea
-                  value={prompts.image_edit_system}
-                  onChange={(e) => setPrompts((p) => ({ ...p, image_edit_system: e.target.value }))}
-                  rows={10}
-                  className="w-full rounded border border-[#1a1b22] bg-[#050507] px-3 py-2 font-mono text-xs text-white focus:border-blue-500 focus:outline-none"
-                />
-              </div>
-              <div>
-                <label className="mb-1 block font-mono text-[10px] text-[#3b3d4a]">User prompt template</label>
-                <textarea
-                  value={prompts.image_edit_user}
-                  onChange={(e) => setPrompts((p) => ({ ...p, image_edit_user: e.target.value }))}
-                  rows={6}
-                  className="w-full rounded border border-[#1a1b22] bg-[#050507] px-3 py-2 font-mono text-xs text-white focus:border-blue-500 focus:outline-none"
-                />
-              </div>
+              <p className="mt-2 font-mono text-[10px] text-emerald-500/80">
+                {editorPrompts?.image_edit_direct_template?.trim()
+                  ? `✓ Saved in database: ${editorPrompts.image_edit_direct_template.trim().length} chars`
+                  : "Not yet saved — using built-in N8N template as default."}
+              </p>
             </div>
           </div>
         )}

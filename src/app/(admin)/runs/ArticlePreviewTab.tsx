@@ -91,13 +91,41 @@ export default function ArticlePreviewTab({
   );
 }
 
+const IMAGE_SOURCE_CONFIG: Record<string, { label: string; color: string; bg: string; border: string; title: string }> = {
+  "og:image": {
+    label: "og:image",
+    color: "#4ade80",
+    bg: "#4ade8012",
+    border: "#4ade8030",
+    title: "Pulled directly from the publisher's article page",
+  },
+  img_url: {
+    label: "StockNewsAPI",
+    color: "#facc15",
+    bg: "#facc1512",
+    border: "#facc1530",
+    title: "Used the image provided by StockNewsAPI",
+  },
+  google_cse: {
+    label: "Google CSE",
+    color: "#94a3b8",
+    bg: "#94a3b812",
+    border: "#94a3b830",
+    title: "Fell back to Google image search",
+  },
+};
+
 function ArticlePreview({ article }: { article: Record<string, unknown> }) {
-  const [imageExpanded, setImageExpanded] = useState(false);
+  const [imageExpanded, setImageExpanded] = useState<"original" | "output" | null>(null);
   const title = (article.title as string) ?? "Untitled";
   const content = (article.content as string) ?? "";
   const rss = article.rss_feed as Record<string, unknown> | null;
+  // Prefer the exact URL used as input (stored per-article), fall back to StockNewsAPI URL for older articles
+  const originalImageUrl = (article.source_image_url as string) || (rss?.img_url as string) || null;
   const imageUrl = article.wp_image_url as string | null;
   const wpPostId = article.wp_post_id as number | null;
+  const imageSource = (article.image_source as string) || null;
+  const imageSourceConfig = imageSource ? IMAGE_SOURCE_CONFIG[imageSource] ?? null : null;
 
   const categoryMatch = content.match(/<strong>\s*Category:\s*<\/strong>\s*([^<]+)/i);
   const category = categoryMatch ? categoryMatch[1].trim() : "Uncategorized";
@@ -126,30 +154,80 @@ function ArticlePreview({ article }: { article: Record<string, unknown> }) {
           )}
         </div>
 
-        {/* Image thumbnail */}
-        {imageUrl ? (
-          <button
-            onClick={() => setImageExpanded(true)}
-            className="group relative h-14 w-24 shrink-0 overflow-hidden rounded-lg border border-[#1a1b22] bg-[#0d0e13] transition hover:border-blue-500/40"
-            title="Click to view full image"
-          >
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src={imageUrl}
-              alt={title}
-              className="h-full w-full object-cover transition group-hover:scale-105"
-            />
-            <div className="absolute inset-0 flex items-center justify-center bg-black/0 transition group-hover:bg-black/30">
-              <span className="font-mono text-[9px] text-white opacity-0 transition group-hover:opacity-100">
-                View
-              </span>
-            </div>
-          </button>
-        ) : (
-          <div className="flex h-14 w-24 shrink-0 items-center justify-center rounded-lg border border-[#1a1b22] bg-[#0d0e13]">
-            <span className="font-mono text-[9px] text-[#3b3d4a]">No image</span>
+        {/* Image thumbnails: Original (when from RSS) + Output */}
+        <div className="flex shrink-0 flex-col items-end gap-2">
+          <div className="flex items-center gap-3">
+            {originalImageUrl ? (
+              <div className="flex flex-col items-center gap-1">
+                <span className="font-mono text-[9px] text-[#3b3d4a]">Original</span>
+                <button
+                  onClick={() => setImageExpanded("original")}
+                  className="group relative h-14 w-24 overflow-hidden rounded-lg border border-[#1a1b22] bg-[#0d0e13] transition hover:border-blue-500/40"
+                  title="View original image"
+                >
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={originalImageUrl}
+                    alt={`Original: ${title}`}
+                    className="h-full w-full object-cover transition group-hover:scale-105"
+                  />
+                  <div className="absolute inset-0 flex items-center justify-center bg-black/0 transition group-hover:bg-black/30">
+                    <span className="font-mono text-[9px] text-white opacity-0 transition group-hover:opacity-100">
+                      View
+                    </span>
+                  </div>
+                </button>
+              </div>
+            ) : null}
+            {imageUrl ? (
+              <div className="flex flex-col items-center gap-1">
+                <span className="font-mono text-[9px] text-[#3b3d4a]">Output</span>
+                <button
+                  onClick={() => setImageExpanded("output")}
+                  className="group relative h-14 w-24 overflow-hidden rounded-lg border border-[#1a1b22] bg-[#0d0e13] transition hover:border-blue-500/40"
+                  title="View output image"
+                >
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={imageUrl}
+                    alt={title}
+                    className="h-full w-full object-cover transition group-hover:scale-105"
+                  />
+                  <div className="absolute inset-0 flex items-center justify-center bg-black/0 transition group-hover:bg-black/30">
+                    <span className="font-mono text-[9px] text-white opacity-0 transition group-hover:opacity-100">
+                      View
+                    </span>
+                  </div>
+                </button>
+              </div>
+            ) : (
+              !originalImageUrl && (
+                <div className="flex h-14 w-24 shrink-0 items-center justify-center rounded-lg border border-[#1a1b22] bg-[#0d0e13]">
+                  <span className="font-mono text-[9px] text-[#3b3d4a]">No image</span>
+                </div>
+              )
+            )}
           </div>
-        )}
+
+          {/* Image source badge */}
+          {imageSourceConfig ? (
+            <span
+              title={imageSourceConfig.title}
+              className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 font-mono text-[9px] font-medium"
+              style={{
+                color: imageSourceConfig.color,
+                backgroundColor: imageSourceConfig.bg,
+                border: `1px solid ${imageSourceConfig.border}`,
+              }}
+            >
+              <span
+                className="inline-block h-1.5 w-1.5 rounded-full"
+                style={{ backgroundColor: imageSourceConfig.color }}
+              />
+              {imageSourceConfig.label}
+            </span>
+          ) : null}
+        </div>
       </div>
 
       {/* Tags */}
@@ -214,11 +292,11 @@ function ArticlePreview({ article }: { article: Record<string, unknown> }) {
         dangerouslySetInnerHTML={{ __html: content }}
       />
 
-      {/* Lightbox */}
-      {imageExpanded && imageUrl && (
+      {/* Lightbox for Original or Output image */}
+      {imageExpanded && (imageExpanded === "original" ? originalImageUrl : imageUrl) && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 p-6"
-          onClick={() => setImageExpanded(false)}
+          onClick={() => setImageExpanded(null)}
         >
           <div
             className="relative max-h-full max-w-5xl overflow-hidden rounded-xl border border-[#1a1b22]"
@@ -226,15 +304,17 @@ function ArticlePreview({ article }: { article: Record<string, unknown> }) {
           >
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
-              src={imageUrl}
-              alt={title}
+              src={imageExpanded === "original" ? originalImageUrl! : imageUrl!}
+              alt={imageExpanded === "original" ? `Original: ${title}` : title}
               className="max-h-[85vh] w-auto object-contain"
             />
             <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent px-4 py-3">
-              <p className="font-serif text-sm text-white/80">{title}</p>
+              <p className="font-serif text-sm text-white/80">
+                {imageExpanded === "original" ? "Original image" : title}
+              </p>
             </div>
             <button
-              onClick={() => setImageExpanded(false)}
+              onClick={() => setImageExpanded(null)}
               className="absolute right-3 top-3 flex h-7 w-7 items-center justify-center rounded-full bg-black/60 font-mono text-xs text-white hover:bg-black/80"
             >
               ✕

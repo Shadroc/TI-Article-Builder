@@ -144,63 +144,39 @@ OUTPUT: Return ONLY a JSON object with:
   "selectedIndex": 0,
   "reason": "Brief explanation (max 20 words)",
   "subjectDescription": "What the main subject is (max 15 words)",
-  "colorTarget": "What should be colored (max 10 words)"
+  "colorTarget": "The single most prominent NON-HUMAN physical object to apply selective colour to — must be a specific named object (e.g. 'the stethoscope', 'the oil derrick', 'the product packaging'), NOT a background, sky, wall, or any part of a person (max 10 words)"
 }
 Use index 0 to {{imageCountMax}} for selectedIndex.`;
 
-/** Full n8n Edit Image (OpenAI) prompt — sent directly to API when image_edit_direct_template is set. Placeholders: subjectDescription, reason, colorTarget, hexColor. */
-export const N8N_EDIT_DIRECT_TEMPLATE = `SYSTEM: You are an award-winning news photographer.
+/** Full n8n Edit Image (OpenAI) prompt — sent directly to API when image_edit_direct_template is set. Placeholders: subjectDescription, reason, colorTarget, hexColor, headline. */
+export const N8N_EDIT_DIRECT_TEMPLATE = `Selective-Colour Editorial Photograph
 
-USER Reference: ATTACHED original photo showing {{subjectDescription}}
+CRITICAL RULE — apply this before everything else:
+- Render the entire image in rich black and white
+- Then apply colour {{hexColor}} to ONE element ONLY: {{colorTarget}}
+- Every other element — background, sky, environment, walls, people, clothing, hair — stays black and white
+- NEVER apply any colour to human faces, skin, or hair
 
-OBJECTIVE: Create one entirely new, ultra-realistic image suitable for a news headline.
+Reference: the attached photo shows {{subjectDescription}}
+Selected because: {{reason}}
 
-AI Editor Notes:
-- Selected because: {{reason}}
-- Main subject to highlight: {{colorTarget}}
-
-Base Look:
+Style:
+- Ultra-realistic editorial news photography
 - 32-bit HDR realism, Sony α7R IV sensor fidelity
-- f/1.4 shallow depth-of-field, cinematic rim light
-- Subtle analog imperfections: dust particles, soft grain, dusty light
+- f/1.4 shallow depth-of-field, cinematic rim lighting
+- Subtle analog grain and natural imperfections
 
-Composition Instructions:
-1. Maintain professional news photography standards
-2. Use natural framing that emphasizes the main subject
-3. Apply editorial-grade lighting and realistic textures
+Composition:
+- The coloured subject ({{colorTarget}}) should be the clear focal point
+- Professional news framing, 16:9 aspect ratio
+- No text overlays, watermarks, or logos
 
-Selective-Colour Treatment:
-- Highlight ONLY {{colorTarget}} in HEX {{hexColor}}
-- Render all background and secondary elements in rich black-and-white tones
-
-Technical Requirements:
-1. Use novel textures and lighting to create unique visual interpretation
-2. Respect editorial tone - no fantastical or unrealistic elements
-3. Do not apply color to human faces
-4. Maintain recognizable subject while transforming style
-5. Ensure composition works for 16:9 aspect ratio
-
-Output: A single ultra-realistic editorial photograph ready for publication.`;
+Output: One single ultra-realistic editorial photograph ready for publication.`;
 
 export const DEFAULT_PROMPTS: EditorPrompts = {
   article_writing_system: DEFAULT_ARTICLE_SYSTEM,
   article_writing_user: DEFAULT_ARTICLE_USER,
   image_selection_system: "You are a senior photo editor for an online newsroom.",
   image_selection_user: N8N_SELECTION_USER,
-  image_edit_system: `You are a senior photo editor for an online newsroom. Your task is to write a single, concise prompt for an AI image editor (e.g. DALL-E / GPT Image) that will transform a reference photo into an editorial image.
-
-RULES:
-- The prompt must describe creating a new editorial photo. Include: the main subject (from subjectDescription), and instruct applying the brand accent color (hex {{hexColor}}) to the element described in colorTarget.
-- Context: news article titled "{{headline}}".
-- Style: professional newsroom photography, clean composition, editorial quality.
-- CRITICAL: The prompt must explicitly forbid any text, words, letters, numbers, captions, watermarks, or logos in the image. Include a phrase like "Do not include any text or words in the image."
-- Output ONLY a JSON object with one field: "prompt" (string). The string is the exact prompt to send to the image editor, nothing else.`,
-  image_edit_user: `Write the image edit prompt.
-
-- Subject: {{subjectDescription}}
-- Apply brand color {{hexColor}} to: {{colorTarget}}
-- Article headline: "{{headline}}"
-
-Return JSON: { "prompt": "your single prompt string here" }`,
   image_edit_direct_template: N8N_EDIT_DIRECT_TEMPLATE,
 };

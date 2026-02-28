@@ -92,3 +92,35 @@ export async function setFeaturedImage(
     throw new Error(`WP set featured image failed (${site.slug}): ${res.status} – ${body}`);
   }
 }
+
+export async function updateRankMathMeta(
+  site: SiteRow,
+  postId: number,
+  metaTitle: string,
+  metaDescription: string,
+  focusKeyword: string
+): Promise<void> {
+  const creds = getCreds(site.slug);
+  const baseUrl = site.wp_base_url.replace(/\/$/, "");
+  const body = new URLSearchParams({
+    post_id: String(postId),
+    rank_math_title: metaTitle,
+    rank_math_description: metaDescription,
+    rank_math_focus_keyword: focusKeyword,
+  });
+
+  const res = await fetch(`${baseUrl}/wp-json/rank-math-api/v1/update-meta`, {
+    method: "POST",
+    headers: {
+      Authorization: authHeader(creds.username, creds.appPassword),
+      "Content-Type": "application/x-www-form-urlencoded",
+    },
+    body,
+    signal: AbortSignal.timeout(30_000),
+  });
+
+  if (!res.ok) {
+    const bodyText = await res.text();
+    throw new Error(`WP rank math meta update failed (${site.slug}): ${res.status} – ${bodyText}`);
+  }
+}
