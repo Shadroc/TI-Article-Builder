@@ -1,6 +1,6 @@
 import { searchImages, GoogleImageResult } from "@/integrations/google-cse";
 import { selectBestImage, editImage } from "@/integrations/openai";
-import { downloadImage, resizeToWebp, scrapeArticleImage } from "@/integrations/image-processing";
+import { downloadImage, downloadImageWithReferer, resizeToWebp, scrapeArticleImage } from "@/integrations/image-processing";
 import { RssFeedRow, PivotCatalogs } from "@/integrations/supabase";
 import type { EditorPrompts } from "@/integrations/supabase";
 import { ArticleResult } from "./generateArticle";
@@ -51,29 +51,50 @@ export async function processArticleImage(
   // Priority 1: og:image scraped from the source article URL (publisher's own editorial image)
   try {
     const ogImageUrl = await scrapeArticleImage(rssItem.link);
-    if (ogImageUrl) {
-      const { buffer, mimeType } = await downloadImage(ogImageUrl);
-      sourceBuffer = buffer;
-      sourceMimeType = mimeType;
-      imageSource = "og:image";
-      sourceImageUrl = ogImageUrl;
-      logger.info("Image source: og:image", { url: ogImageUrl });
+    if (!ogImageUrl) {
+      logger.info("og:image: no meta tag found in HTML", { articleUrl: rssItem.link });
+    } else {
+      logger.info("og:image: meta tag found, downloading", { ogImageUrl, articleUrl: rssItem.link });
+      try {
+        // Pass the article URL as Referer — many CDNs enforce hotlink protection
+        const { buffer, mimeType } = await downloadImageWithReferer(ogImageUrl, rssItem.link);
+        sourceBuffer = buffer;
+        sourceMimeType = mimeType;
+        imageSource = "og:image";
+        sourceImageUrl = ogImageUrl;
+        logger.info("og:image: download succeeded", { ogImageUrl, bytes: buffer.length, mimeType });
+      } catch (downloadErr) {
+        logger.info("og:image: download failed, falling back to img_url", {
+          ogImageUrl,
+          err: String(downloadErr),
+        });
+      }
     }
-  } catch (err) {
-    logger.info("og:image scrape failed, trying img_url", { err: String(err) });
+  } catch (scrapeErr) {
+    logger.info("og:image: scrape threw an error, falling back to img_url", {
+      articleUrl: rssItem.link,
+      err: String(scrapeErr),
+    });
   }
 
   // Priority 2: img_url from StockNewsAPI
-  if (!sourceBuffer && rssItem.img_url) {
-    try {
-      const { buffer, mimeType } = await downloadImage(rssItem.img_url);
-      sourceBuffer = buffer;
-      sourceMimeType = mimeType;
-      imageSource = "img_url";
-      sourceImageUrl = rssItem.img_url;
-      logger.info("Image source: img_url from StockNewsAPI");
-    } catch (err) {
-      logger.info("img_url download failed, falling back to Google CSE", { err: String(err) });
+  if (!sourceBuffer) {
+    if (!rssItem.img_url) {
+      logger.info("img_url: not present on rssItem, skipping to Google CSE");
+    } else {
+      try {
+        const { buffer, mimeType } = await downloadImage(rssItem.img_url);
+        sourceBuffer = buffer;
+        sourceMimeType = mimeType;
+        imageSource = "img_url";
+        sourceImageUrl = rssItem.img_url;
+        logger.info("img_url: download succeeded", { img_url: rssItem.img_url, bytes: buffer.length });
+      } catch (err) {
+        logger.info("img_url: download failed, falling back to Google CSE", {
+          img_url: rssItem.img_url,
+          err: String(err),
+        });
+      }
     }
   }
 
