@@ -2,7 +2,10 @@ import { z } from "zod";
 
 const envSchema = z.object({
   NEXT_PUBLIC_SUPABASE_URL: z.string().url(),
-  SUPABASE_SERVICE_ROLE_KEY: z.string().min(1),
+  SUPABASE_SECRET_KEY: z
+    .string()
+    .min(1)
+    .refine((v) => v.startsWith("sb_secret_"), "SUPABASE_SECRET_KEY must be a secret key (sb_secret_...)"),
   OPENAI_API_KEY: z.string().min(1),
   ANTHROPIC_API_KEY: z.string().min(1),
   STOCKNEWS_API_TOKEN: z.string().min(1),

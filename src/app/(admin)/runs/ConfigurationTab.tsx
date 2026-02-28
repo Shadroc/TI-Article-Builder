@@ -190,7 +190,7 @@ export default function ConfigurationTab({ config, sites }: ConfigurationTabProp
             { name: "OpenAI", key: "OPENAI_API_KEY" },
             { name: "Google CSE", key: "GOOGLE_CSE_API_KEY" },
             { name: "Jina AI", key: "JINA_API_KEY" },
-            { name: "Supabase", key: "SUPABASE_SERVICE_ROLE_KEY" },
+            { name: "Supabase", key: "SUPABASE_SECRET_KEY" },
             { name: "WordPress (TI)", key: "WORDPRESS_SITES" },
             { name: "WordPress (MT)", key: "WORDPRESS_SITES" },
           ].map((svc) => (

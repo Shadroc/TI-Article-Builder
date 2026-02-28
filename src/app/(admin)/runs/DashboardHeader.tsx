@@ -1,5 +1,6 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { useState } from "react";
 
 interface DashboardHeaderProps {
@@ -10,7 +11,14 @@ interface DashboardHeaderProps {
 }
 
 export default function DashboardHeader({ isRunning, onRun, onTest, onStop }: DashboardHeaderProps) {
+  const router = useRouter();
   const [isStopping, setIsStopping] = useState(false);
+
+  async function handleLogout() {
+    await fetch("/api/admin/logout", { method: "POST" });
+    router.push("/runs/login");
+    router.refresh();
+  }
 
   async function handleStop() {
     setIsStopping(true);
@@ -32,6 +40,13 @@ export default function DashboardHeader({ isRunning, onRun, onTest, onStop }: Da
         </span>
       </div>
       <div className="flex items-center gap-3">
+        <button
+          onClick={handleLogout}
+          className="rounded border border-[#2a2b35] px-3 py-1.5 font-mono text-[10px] text-[#6b6d7a] transition hover:border-[#3b3d4a] hover:text-[#8b8d9a]"
+          title="Sign out"
+        >
+          LOGOUT
+        </button>
         {isRunning && (
           <span className="flex items-center gap-1.5 font-mono text-[10px] text-[#3b3d4a]">
             <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-blue-500" />

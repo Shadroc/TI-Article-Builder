@@ -13,8 +13,8 @@ npx vercel --prod --scope tyconas-projects --yes
 
 ### Supabase
 - **Project**: [Automated News TLDR](https://supabase.com/dashboard/project/dedjsgmgrnpvclchghcx)
-- **Service role key**: Settings → API → Regenerate `service_role` key
-- Update `SUPABASE_SERVICE_ROLE_KEY` in `.env.local` and Vercel
+- **Secret key**: Settings → API → Regenerate secret key (`sb_secret_...`)
+- Update `SUPABASE_SECRET_KEY` in `.env.local` and Vercel
 
 ### OpenAI
 - [API keys](https://platform.openai.com/api-keys) → Revoke old key, create new
