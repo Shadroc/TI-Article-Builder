@@ -325,7 +325,7 @@ export default function Dashboard({
           )}
 
           {tab === "config" && (
-            <ConfigurationTab config={config} sites={initialSites} />
+            <ConfigurationTab config={config} sites={initialSites} onSaved={poll} />
           )}
 
           {tab === "prompts" && (

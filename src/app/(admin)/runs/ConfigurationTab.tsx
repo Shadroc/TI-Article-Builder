@@ -7,6 +7,7 @@ import { updatePipelineConfig } from "./actions";
 interface ConfigurationTabProps {
   config: PipelineConfig | null;
   sites: { id: string; name: string; slug: string }[];
+  onSaved?: () => void;
 }
 
 const WRITER_MODELS = [
@@ -22,7 +23,39 @@ const IMAGE_MODELS = [
 
 type HeadlinesDateMode = "today" | "yesterday" | "custom";
 
-export default function ConfigurationTab({ config, sites }: ConfigurationTabProps) {
+/** Convert MMDDYYYY to YYYY-MM-DD for date inputs */
+function mmddyyyyToInputValue(s: string): string {
+  if (s.length !== 8) return "";
+  const mm = s.slice(0, 2);
+  const dd = s.slice(2, 4);
+  const yyyy = s.slice(4, 8);
+  return `${yyyy}-${mm}-${dd}`;
+}
+
+/** Convert YYYY-MM-DD to MMDDYYYY */
+function inputValueToMmddyyyy(s: string): string {
+  if (!s || s.length < 10) return "";
+  const [y, m, d] = s.split("-");
+  if (!y || !m || !d) return "";
+  return `${m.padStart(2, "0")}${d.padStart(2, "0")}${y}`;
+}
+
+/** Parse MMDDYYYY-MMDDYYYY into { start: YYYY-MM-DD, end: YYYY-MM-DD } */
+function parseCustomRange(value: string): { start: string; end: string } {
+  const parts = value.split("-");
+  if (parts.length < 2) return { start: "", end: "" };
+  const startPart = parts[0] ?? "";
+  const endPart = parts[1] ?? "";
+  if (startPart.length !== 8 || endPart.length !== 8) {
+    return { start: "", end: "" };
+  }
+  return {
+    start: mmddyyyyToInputValue(startPart),
+    end: mmddyyyyToInputValue(endPart),
+  };
+}
+
+export default function ConfigurationTab({ config, sites, onSaved }: ConfigurationTabProps) {
   const [local, setLocal] = useState<PipelineConfig | null>(config);
   const [headlinesDateMode, setHeadlinesDateMode] = useState<HeadlinesDateMode>(() => {
     const d = config?.headlines_date;
@@ -44,9 +77,14 @@ export default function ConfigurationTab({ config, sites }: ConfigurationTabProp
       toSave.headlines_date = "today";
     }
     startTransition(async () => {
-      await updatePipelineConfig(toSave);
+      const result = await updatePipelineConfig(toSave);
+      if (result?.error) {
+        console.error("Config save failed:", result.error);
+        return;
+      }
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
+      onSaved?.();
     });
   }
 
@@ -105,22 +143,59 @@ export default function ConfigurationTab({ config, sites }: ConfigurationTabProp
               <option value="custom">Custom range</option>
             </select>
             {headlinesDateMode === "custom" ? (
-              <div className="flex-1">
-                <input
-                  type="text"
-                  placeholder="MMDDYYYY-MMDDYYYY (e.g. 01012024-01152024)"
-                  value={
-                    local.headlines_date &&
-                    local.headlines_date !== "today" &&
-                    local.headlines_date !== "yesterday"
-                      ? local.headlines_date
-                      : ""
-                  }
-                  onChange={(e) =>
-                    setLocal({ ...local, headlines_date: e.target.value })
-                  }
-                  className="w-full rounded border border-[#1a1b22] bg-[#0d0e13] px-3 py-2 font-mono text-sm text-white focus:border-blue-500 focus:outline-none placeholder:text-[#6b6d7a]"
-                />
+              <div className="flex flex-1 gap-3 items-end">
+                {(() => {
+                  const raw = local.headlines_date ?? "";
+                  const isValid =
+                    raw &&
+                    raw !== "today" &&
+                    raw !== "yesterday" &&
+                    /^\d{8}-\d{8}$/.test(raw);
+                  const { start, end } = isValid ? parseCustomRange(raw) : { start: "", end: "" };
+                  return (
+                    <>
+                      <div className="flex-1">
+                        <label className="mb-1 block font-mono text-[9px] uppercase tracking-wider text-[#6b6d7a]">
+                          Start
+                        </label>
+                        <input
+                          type="date"
+                          value={start}
+                          onChange={(e) => {
+                            const newStart = e.target.value;
+                            const newEnd = end || newStart;
+                            const apiFormat = `${inputValueToMmddyyyy(newStart)}-${inputValueToMmddyyyy(newEnd)}`;
+                            setLocal({
+                              ...local,
+                              headlines_date: apiFormat,
+                            });
+                          }}
+                          className="w-full rounded border border-[#1a1b22] bg-[#0d0e13] px-3 py-2 font-mono text-sm text-white focus:border-blue-500 focus:outline-none [color-scheme:dark]"
+                        />
+                      </div>
+                      <div className="flex-1">
+                        <label className="mb-1 block font-mono text-[9px] uppercase tracking-wider text-[#6b6d7a]">
+                          End
+                        </label>
+                        <input
+                          type="date"
+                          value={end}
+                          min={start || undefined}
+                          onChange={(e) => {
+                            const newEnd = e.target.value;
+                            const newStart = start || newEnd;
+                            const apiFormat = `${inputValueToMmddyyyy(newStart)}-${inputValueToMmddyyyy(newEnd)}`;
+                            setLocal({
+                              ...local,
+                              headlines_date: apiFormat,
+                            });
+                          }}
+                          className="w-full rounded border border-[#1a1b22] bg-[#0d0e13] px-3 py-2 font-mono text-sm text-white focus:border-blue-500 focus:outline-none [color-scheme:dark]"
+                        />
+                      </div>
+                    </>
+                  );
+                })()}
               </div>
             ) : null}
           </div>
