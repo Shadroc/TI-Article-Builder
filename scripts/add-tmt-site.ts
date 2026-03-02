@@ -25,7 +25,7 @@ const categoryMap = {
 };
 
 async function main() {
-  const supabase = createClient(url, key);
+  const supabase = createClient(url!, key!);
   const { data, error } = await supabase
     .from("sites")
     .insert({
