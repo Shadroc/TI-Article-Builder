@@ -1,5 +1,6 @@
 "use server";
 
+import { after } from "next/server";
 import { runPipeline } from "@/pipeline/orchestrator";
 import { supabase, PipelineConfig, EditorPrompts, CategoryMap, PivotCatalogs } from "@/integrations/supabase";
 
@@ -14,9 +15,11 @@ export async function triggerPipelineRun() {
   const articleCount = Math.min(config?.headlines_to_fetch ?? 6, 20);
   const headlinesDate = config?.headlines_date ?? "today";
 
-  runPipeline({ trigger: "manual", articleCount, headlinesDate }).catch((err) => {
-    console.error("Pipeline run failed:", err);
-  });
+  after(() =>
+    runPipeline({ trigger: "manual", articleCount, headlinesDate }).catch((err) => {
+      console.error("Pipeline run failed:", err);
+    })
+  );
 
   await new Promise((r) => setTimeout(r, 500));
 
@@ -24,10 +27,11 @@ export async function triggerPipelineRun() {
 }
 
 export async function triggerTestRun() {
-  // Runs a single article to verify the pipeline end-to-end.
-  runPipeline({ trigger: "manual", articleCount: 1 }).catch((err) => {
-    console.error("Test run failed:", err);
-  });
+  after(() =>
+    runPipeline({ trigger: "manual", articleCount: 1 }).catch((err) => {
+      console.error("Test run failed:", err);
+    })
+  );
 
   await new Promise((r) => setTimeout(r, 500));
 
@@ -50,13 +54,23 @@ export async function stopPipelineRun(runId?: string) {
     runId = data.id;
   }
 
-  await db
+  const now = new Date().toISOString();
+  const { data, error } = await db
     .from("workflow_runs")
-    .update({ cancel_requested_at: new Date().toISOString() })
+    .update({
+      cancel_requested_at: now,
+      status: "cancelled",
+      finished_at: now,
+      error: "Cancelled by user",
+    })
     .eq("id", runId)
-    .eq("status", "running");
+    .eq("status", "running")
+    .select("id");
 
-  return { runId, message: "Cancel requested" };
+  if (error) return { error: error.message };
+  if (!data?.length) return { error: "Run not found or already finished" };
+
+  return { runId, message: "Cancelled" };
 }
 
 export async function fetchDashboardData() {

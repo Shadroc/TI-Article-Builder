@@ -235,7 +235,10 @@ export default function Dashboard({
 
   async function handleStop(): Promise<void> {
     const runId = latestRun?.id as string;
-    await stopPipelineRun(runId);
+    const result = await stopPipelineRun(runId);
+    if (result?.error) {
+      console.error("Stop failed:", result.error);
+    }
     await poll();
   }
 

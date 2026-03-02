@@ -38,6 +38,19 @@ async function checkpoint(runId: string): Promise<void> {
   }
 }
 
+/** Runs op but throws CancelledError if cancel_requested_at is set before it completes. Polls every 500ms. */
+async function raceWithCancel<T>(runId: string, op: () => Promise<T>): Promise<T> {
+  return Promise.race([
+    op(),
+    (async (): Promise<never> => {
+      while (!(await isCancelled(runId))) {
+        await new Promise((r) => setTimeout(r, 500));
+      }
+      throw new CancelledError();
+    })(),
+  ]);
+}
+
 async function createRun(trigger: "cron" | "manual"): Promise<string> {
   const { data, error } = await supabase()
     .from("workflow_runs")
@@ -98,8 +111,10 @@ export async function runPipeline(options: PipelineOptions): Promise<{
     await checkpoint(runId);
 
     const headlinesDate = options.headlinesDate?.trim() || "today";
-    const headlines = await withRetry("fetch_headlines", () =>
-      fetchAndExpandHeadlines(options.articleCount ?? 6, headlinesDate)
+    const headlines = await raceWithCancel(runId, () =>
+      withRetry("fetch_headlines", () =>
+        fetchAndExpandHeadlines(options.articleCount ?? 6, headlinesDate)
+      )
     );
     await updateStep(fetchStepId, {
       status: "completed",
@@ -169,8 +184,8 @@ async function processOneArticle(
     input_summary: headline.title,
   });
 
-  const { row: rssItem, alreadyExisted } = await withRetry("upsert_rss_feed", () =>
-    upsertRssFeedItem(headline)
+  const { row: rssItem, alreadyExisted } = await raceWithCancel(runId, () =>
+    withRetry("upsert_rss_feed", () => upsertRssFeedItem(headline))
   );
 
   if (alreadyExisted) {
@@ -197,7 +212,9 @@ async function processOneArticle(
     status: "running",
   });
 
-  const article = await withRetry("generate_article", () => generateArticle(rssItem));
+  const article = await raceWithCancel(runId, () =>
+    withRetry("generate_article", () => generateArticle(rssItem))
+  );
   await updateStep(articleStepId, {
     status: "completed",
     output_summary: `Category: ${article.category}, headline: ${article.headline}`,
@@ -213,8 +230,10 @@ async function processOneArticle(
     status: "running",
   });
 
-  const image = await withRetry("process_image", () =>
-    processArticleImage(rssItem, article), { maxAttempts: 2 }
+  const image = await raceWithCancel(runId, () =>
+    withRetry("process_image", () =>
+      processArticleImage(rssItem, article), { maxAttempts: 2 }
+    )
   );
   await updateStep(imageStepId, {
     status: "completed",
@@ -231,8 +250,10 @@ async function processOneArticle(
     status: "running",
   });
 
-  const sites = await getActiveSites();
-  const siteArticles = await generateSeoPerSite(article, sites);
+  const siteArticles = await raceWithCancel(runId, async () => {
+    const sites = await getActiveSites();
+    return generateSeoPerSite(article, sites);
+  });
   await updateStep(seoStepId, {
     status: "completed",
     output_summary: `Generated SEO for ${siteArticles.length} sites`,
@@ -250,8 +271,10 @@ async function processOneArticle(
     });
 
     try {
-      const wpResult = await withRetry(`publish_${siteArticle.site.slug}`, () =>
-        publishToWordPress(siteArticle, article.cleanedHtml, image), { maxAttempts: 2 }
+      const wpResult = await raceWithCancel(runId, () =>
+        withRetry(`publish_${siteArticle.site.slug}`, () =>
+          publishToWordPress(siteArticle, article.cleanedHtml, image), { maxAttempts: 2 }
+        )
       );
 
       await saveAiArticle(
