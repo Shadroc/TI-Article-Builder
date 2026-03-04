@@ -1,6 +1,12 @@
 import { searchImages, GoogleImageResult } from "@/integrations/google-cse";
 import { selectBestImage, editImage } from "@/integrations/openai";
-import { downloadImage, downloadImageWithReferer, resizeToWebp, scrapeArticleImage } from "@/integrations/image-processing";
+import {
+  downloadImage,
+  downloadImageWithReferer,
+  ensureSupportedForEdit,
+  resizeToWebp,
+  scrapeArticleImage,
+} from "@/integrations/image-processing";
 import { RssFeedRow, PivotCatalogs } from "@/integrations/supabase";
 import type { EditorPrompts } from "@/integrations/supabase";
 import { ArticleResult } from "./generateArticle";
@@ -21,19 +27,21 @@ async function downloadCandidateImages(
   results: GoogleImageResult[],
   max = 5
 ): Promise<{ url: string; buffer: Buffer; mimeType: string }[]> {
-  const downloads: { url: string; buffer: Buffer; mimeType: string }[] = [];
   const candidates = results.slice(0, max);
 
-  for (const item of candidates) {
-    try {
-      const { buffer, mimeType } = await downloadImage(item.link);
-      downloads.push({ url: item.link, buffer, mimeType });
-    } catch (err) {
-      console.error(`Failed to download candidate image: ${item.link}`, err);
-    }
-  }
+  const results_ = await Promise.all(
+    candidates.map(async (item) => {
+      try {
+        const { buffer, mimeType } = await downloadImage(item.link);
+        return { url: item.link, buffer, mimeType } as const;
+      } catch (err) {
+        console.error(`Failed to download candidate image: ${item.link}`, err);
+        return null;
+      }
+    })
+  );
 
-  return downloads;
+  return results_.filter((r): r is { url: string; buffer: Buffer; mimeType: string } => r !== null);
 }
 
 export async function processArticleImage(
@@ -137,7 +145,23 @@ export async function processArticleImage(
     promptPreview: editPrompt.substring(0, 300),
   });
 
-  const editedBuffer = await editImage(sourceBuffer, editPrompt, sourceMimeType);
+  const { buffer: editInputBuffer, mimeType: editInputMime } = await ensureSupportedForEdit(
+    sourceBuffer,
+    sourceMimeType
+  );
+
+  const meta = await import("sharp").then((s) => s.default(editInputBuffer).metadata());
+  logger.info("IMAGE EDIT INPUT", {
+    originalMime: sourceMimeType,
+    convertedMime: editInputMime,
+    originalBytes: sourceBuffer.length,
+    convertedBytes: editInputBuffer.length,
+    width: meta.width,
+    height: meta.height,
+    format: meta.format,
+  });
+
+  const editedBuffer = await editImage(editInputBuffer, editPrompt, editInputMime);
   const { buffer: finalBuffer } = await resizeToWebp(editedBuffer);
   const fileName = `${slugify(article.headline)}-${Date.now()}.webp`;
 
@@ -203,7 +227,23 @@ async function fallbackToGoogleSearch(
     promptPreview: editPrompt.substring(0, 300),
   });
 
-  const editedBuffer = await editImage(selectedBuffer, editPrompt, selectedMimeType);
+  const { buffer: editInputBuffer, mimeType: editInputMime } = await ensureSupportedForEdit(
+    selectedBuffer,
+    selectedMimeType
+  );
+
+  const meta = await import("sharp").then((s) => s.default(editInputBuffer).metadata());
+  logger.info("IMAGE EDIT INPUT", {
+    originalMime: selectedMimeType,
+    convertedMime: editInputMime,
+    originalBytes: selectedBuffer.length,
+    convertedBytes: editInputBuffer.length,
+    width: meta.width,
+    height: meta.height,
+    format: meta.format,
+  });
+
+  const editedBuffer = await editImage(editInputBuffer, editPrompt, editInputMime);
   const { buffer: finalBuffer } = await resizeToWebp(editedBuffer);
   const fileName = `${slugify(article.headline)}-${Date.now()}.webp`;
 

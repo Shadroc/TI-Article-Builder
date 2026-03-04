@@ -27,26 +27,24 @@ export async function fetchAndExpandHeadlines(
     requestedCount: count,
     receivedCount: headlines.length,
   });
-  const results: HeadlineItem[] = [];
+  const expanded = await Promise.all(
+    headlines.map((h) =>
+      fetchArticleExcerpt(h.news_id).catch((err) => {
+        console.error(`Failed to expand headline ${h.news_id}:`, err);
+        return null;
+      })
+    )
+  );
 
-  for (const headline of headlines) {
-    let expanded: StockNewsHeadline | null = null;
-    try {
-      expanded = await fetchArticleExcerpt(headline.news_id);
-    } catch (err) {
-      console.error(`Failed to expand headline ${headline.news_id}:`, err);
-    }
-
-    const source = expanded ?? headline;
-    results.push({
+  return headlines.map((headline, i) => {
+    const source = expanded[i] ?? headline;
+    return {
       news_id: headline.news_id,
       title: source.title,
       news_url: source.news_url ?? headline.news_url,
       image_url: source.image_url ?? headline.image_url,
       text: source.text ?? headline.text,
       date: source.date ?? headline.date,
-    });
-  }
-
-  return results;
+    };
+  });
 }

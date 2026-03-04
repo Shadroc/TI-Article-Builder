@@ -1,4 +1,5 @@
 import OpenAI from "openai";
+import sharp from "sharp";
 import { env } from "@/lib/env";
 import type { EditorPrompts } from "@/integrations/supabase";
 import { formatPivotCatalogsForAI } from "@/lib/editor-config";
@@ -35,13 +36,18 @@ export async function selectBestImage(
   prompts?: Pick<EditorPrompts, "image_selection_system" | "image_selection_user">,
   pivotCatalogs?: PivotCatalogs | null
 ): Promise<ImageSelectionResult> {
-  const imageContent = candidates.map((c) => ({
-    type: "image_url" as const,
-    image_url: {
-      url: `data:${c.mimeType};base64,${c.buffer.toString("base64")}`,
-      detail: "auto" as const,
-    },
-  }));
+  const imageContent = await Promise.all(
+    candidates.map(async (c) => {
+      const pngBuffer = await sharp(c.buffer).png().toBuffer();
+      return {
+        type: "image_url" as const,
+        image_url: {
+          url: `data:image/png;base64,${pngBuffer.toString("base64")}`,
+          detail: "auto" as const,
+        },
+      };
+    })
+  );
 
   const colorHint = brandHexColor
     ? `\nBrand accent colour for selective-colour treatment: ${brandHexColor}. The colorTarget MUST be a specific, prominent NON-HUMAN physical object in the foreground (e.g. a stethoscope, a vehicle, a product, machinery, a building facade). Do NOT suggest backgrounds, skies, walls, environments, or any part of a human (skin, face, hair, clothing).`
@@ -84,22 +90,29 @@ Return ONLY a JSON object with these fields:
 
 const IMAGE_EDIT_TIMEOUT_MS = 3 * 60 * 1000; // 3 minutes
 
+const EDIT_EXT: Record<string, string> = {
+  "image/png": "png",
+  "image/jpeg": "jpg",
+  "image/gif": "gif",
+  "image/webp": "webp",
+};
+
 export async function editImage(
   imageBuffer: Buffer,
   prompt: string,
   mimeType = "image/jpeg"
 ): Promise<Buffer> {
-  const ext = mimeType === "image/png" ? "png" : "jpg";
+  const normalizedMime = mimeType.toLowerCase().split(";")[0].trim();
+  const ext = EDIT_EXT[normalizedMime] ?? "png";
   const uint8 = new Uint8Array(imageBuffer);
-  const blob = new Blob([uint8], { type: mimeType });
+  const file = new File([uint8], `image.${ext}`, { type: normalizedMime });
 
   const formData = new FormData();
-  formData.append("image", blob, `image.${ext}`);
+  formData.append("image", file);
   formData.append("prompt", prompt);
   formData.append("model", "gpt-image-1");
   formData.append("n", "1");
   formData.append("size", "1536x1024");
-  formData.append("quality", "high");
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), IMAGE_EDIT_TIMEOUT_MS);

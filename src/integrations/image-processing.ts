@@ -1,4 +1,5 @@
 import sharp from "sharp";
+import { logger } from "@/lib/logger";
 
 /**
  * Fetches the source article page and extracts the og:image (or twitter:image) URL.
@@ -80,12 +81,44 @@ export async function downloadImageWithReferer(
     throw new Error(`URL returned non-image content-type: ${contentType} – ${url}`);
   }
   const buffer = Buffer.from(await res.arrayBuffer());
+
+  // Guard: some servers return HTML error pages with an image/* content-type
+  if (buffer.length > 0 && buffer.length < 200) {
+    const head = buffer.toString("utf8", 0, Math.min(buffer.length, 50)).trim();
+    if (head.startsWith("<!") || head.startsWith("<html") || head.startsWith("<HTML")) {
+      throw new Error(`URL returned HTML instead of image data – ${url}`);
+    }
+  }
+
   return { buffer, mimeType: contentType };
 }
 
 /** Generic image download — no Referer. Use downloadImageWithReferer for editorial og:images. */
 export async function downloadImage(url: string): Promise<{ buffer: Buffer; mimeType: string }> {
   return downloadImageWithReferer(url);
+}
+
+/** OpenAI image edits API accepts png, jpeg, gif, webp. Convert unsupported formats (e.g. avif) to PNG. */
+const OPENAI_EDIT_SUPPORTED_FORMATS = new Set(["png", "jpeg", "gif", "webp"]);
+
+const FORMAT_TO_MIME: Record<string, string> = {
+  png: "image/png",
+  jpeg: "image/jpeg",
+  jpg: "image/jpeg",
+  gif: "image/gif",
+  webp: "image/webp",
+};
+
+export async function ensureSupportedForEdit(
+  buffer: Buffer,
+  mimeType: string
+): Promise<{ buffer: Buffer; mimeType: string }> {
+  // Always re-encode to PNG via sharp. This guarantees:
+  // 1. Unsupported formats (avif, tiff, svg) get converted
+  // 2. Images with valid headers but malformed bytes get re-encoded cleanly
+  // 3. The mime type always matches the actual bytes
+  const pngBuffer = await sharp(buffer).png().toBuffer();
+  return { buffer: pngBuffer, mimeType: "image/png" };
 }
 
 export async function resizeToWebp(

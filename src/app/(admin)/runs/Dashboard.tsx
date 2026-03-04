@@ -215,10 +215,11 @@ export default function Dashboard({
     }
   }, []);
 
-  // Poll while running
+  // Poll while running (1s for responsive log updates; was 2s)
   useEffect(() => {
     if (!shouldPoll) return;
-    const interval = setInterval(poll, 2000);
+    poll(); // poll immediately, then every 1s
+    const interval = setInterval(poll, 1000);
     return () => clearInterval(interval);
   }, [shouldPoll, poll]);
 

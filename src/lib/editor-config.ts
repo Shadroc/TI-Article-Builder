@@ -15,18 +15,26 @@ export interface EditorConfig {
   pivot_catalogs: PivotCatalogs | null;
 }
 
+const EDITOR_CONFIG_CACHE_MS = 30_000; // 30s - reduces repeated fetches during pipeline run
+let cachedConfig: EditorConfig | null = null;
+let cacheExpiry = 0;
+
 export async function getEditorConfig(): Promise<EditorConfig> {
+  if (cachedConfig && Date.now() < cacheExpiry) return cachedConfig;
+
   const { data } = await supabase()
     .from("pipeline_config")
     .select("editor_prompts, category_map, pivot_catalogs")
     .limit(1)
     .single();
 
-  return {
+  cachedConfig = {
     editor_prompts: (data?.editor_prompts as EditorPrompts) ?? null,
     category_map: (data?.category_map as CategoryMap) ?? null,
     pivot_catalogs: (data?.pivot_catalogs as PivotCatalogs) ?? null,
   };
+  cacheExpiry = Date.now() + EDITOR_CONFIG_CACHE_MS;
+  return cachedConfig;
 }
 
 export function getCategoryMap(): CategoryMap {

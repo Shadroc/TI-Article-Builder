@@ -25,29 +25,29 @@ export async function generateSeoPerSite(
   article: ArticleResult,
   sites: SiteRow[]
 ): Promise<SiteArticle[]> {
-  const results: SiteArticle[] = [];
+  const seoResults = await Promise.all(
+    sites.map((site) =>
+      rewriteSeoForSite(
+        article.headline,
+        article.cleanedHtml,
+        site.name,
+        site.slug,
+        site.id
+      )
+    )
+  );
 
-  for (const site of sites) {
-    const seo = await rewriteSeoForSite(
-      article.headline,
-      article.cleanedHtml,
-      site.name,
-      site.slug,
-      site.id
-    );
-
+  return sites.map((site, i) => {
+    const seo = seoResults[i];
     const catMap = site.category_map ?? {};
     const mapped = catMap[article.category] ?? { id: 0, color: "#CCCCCC" };
-
-    results.push({
+    return {
       site,
       metatitle: seo.metatitle,
       metadescription: seo.metadescription,
       keyword: seo.keyword,
       categoryId: mapped.id,
       categoryColor: mapped.color,
-    });
-  }
-
-  return results;
+    };
+  });
 }

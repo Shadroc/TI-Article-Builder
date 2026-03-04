@@ -21,8 +21,6 @@ export async function triggerPipelineRun() {
     })
   );
 
-  await new Promise((r) => setTimeout(r, 500));
-
   return { started: true };
 }
 
@@ -32,8 +30,6 @@ export async function triggerTestRun() {
       console.error("Test run failed:", err);
     })
   );
-
-  await new Promise((r) => setTimeout(r, 500));
 
   return { started: true };
 }

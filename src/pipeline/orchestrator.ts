@@ -230,11 +230,24 @@ async function processOneArticle(
     status: "running",
   });
 
-  const image = await raceWithCancel(runId, () =>
-    withRetry("process_image", () =>
-      processArticleImage(rssItem, article), { maxAttempts: 2 }
-    )
-  );
+  let image: Awaited<ReturnType<typeof processArticleImage>>;
+  try {
+    image = await raceWithCancel(runId, () =>
+      withRetry("process_image", () =>
+        processArticleImage(rssItem, article), { maxAttempts: 2 }
+      )
+    );
+  } catch (err) {
+    if (err instanceof CancelledError) throw err;
+    const msg = err instanceof Error ? err.message : String(err);
+    await updateStep(imageStepId, {
+      status: "failed",
+      error: msg,
+      finished_at: new Date().toISOString(),
+    });
+    throw err;
+  }
+
   await updateStep(imageStepId, {
     status: "completed",
     output_summary: `Image: ${image.fileName}`,
@@ -260,47 +273,64 @@ async function processOneArticle(
     finished_at: new Date().toISOString(),
   });
 
-  for (const siteArticle of siteArticles) {
-    await checkpoint(runId);
+  await checkpoint(runId);
 
-    const publishStepId = await logStep({
-      run_id: runId,
-      article_index: articleIndex,
-      step_name: `publish_${siteArticle.site.slug}`,
-      status: "running",
-    });
+  const publishStepIds = await Promise.all(
+    siteArticles.map((sa) =>
+      logStep({
+        run_id: runId,
+        article_index: articleIndex,
+        step_name: `publish_${sa.site.slug}`,
+        status: "running",
+      })
+    )
+  );
 
-    try {
-      const wpResult = await raceWithCancel(runId, () =>
+  const publishResults = await raceWithCancel(runId, () =>
+    Promise.allSettled(
+      siteArticles.map((siteArticle, i) =>
         withRetry(`publish_${siteArticle.site.slug}`, () =>
           publishToWordPress(siteArticle, article.cleanedHtml, image), { maxAttempts: 2 }
         )
-      );
+      )
+    )
+  );
 
+  let firstError: Error | null = null;
+  const now = new Date().toISOString();
+
+  for (let i = 0; i < siteArticles.length; i++) {
+    const result = publishResults[i];
+    const siteArticle = siteArticles[i];
+    const stepId = publishStepIds[i];
+
+    if (result.status === "fulfilled") {
       await saveAiArticle(
         rssItem.id,
         siteArticle.metatitle,
         article.cleanedHtml,
         siteArticle.site.id,
-        wpResult,
+        result.value,
         image.imageSource,
         image.sourceImageUrl
       );
-
-      await updateStep(publishStepId, {
+      await updateStep(stepId, {
         status: "completed",
-        output_summary: `Published post ${wpResult.postId} to ${siteArticle.site.slug}`,
-        finished_at: new Date().toISOString(),
+        output_summary: `Published post ${result.value.postId} to ${siteArticle.site.slug}`,
+        finished_at: now,
       });
-    } catch (err) {
-      if (err instanceof CancelledError) throw err;
-      const msg = err instanceof Error ? err.message : String(err);
-      await updateStep(publishStepId, {
+    } else {
+      if (!firstError) firstError = result.reason instanceof Error ? result.reason : new Error(String(result.reason));
+      await updateStep(stepId, {
         status: "failed",
-        error: msg,
-        finished_at: new Date().toISOString(),
+        error: String(result.reason),
+        finished_at: now,
       });
-      throw err;
     }
+  }
+
+  if (firstError) {
+    if (firstError instanceof CancelledError) throw firstError;
+    throw firstError;
   }
 }
