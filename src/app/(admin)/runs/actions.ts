@@ -86,12 +86,24 @@ export async function fetchDashboardData() {
   let latestSteps: Record<string, unknown>[] = [];
 
   if (runs.length > 0) {
+    // Include steps from multiple runs to persist logs over the day
+    // Use runs from the last 24 hours (or last 10 runs as fallback)
+    const cutoff = new Date();
+    cutoff.setHours(cutoff.getHours() - 24);
+    const cutoffIso = cutoff.toISOString();
+    const recentRunIds = (runs as { id: string; started_at?: string }[])
+      .filter((r) => (r.started_at ?? "") >= cutoffIso)
+      .map((r) => r.id)
+      .slice(0, 10); // cap at 10 runs max
+
+    const runIds = recentRunIds.length > 0 ? recentRunIds : [runs[0].id as string];
+
     const { data: steps } = await db
       .from("workflow_steps")
       .select("*")
-      .eq("run_id", runs[0].id)
-      .order("article_index")
-      .order("started_at");
+      .in("run_id", runIds)
+      .order("started_at", { ascending: true })
+      .order("article_index", { ascending: true });
     latestSteps = (steps ?? []) as Record<string, unknown>[];
   }
 
@@ -106,7 +118,7 @@ export async function fetchDashboardData() {
     runs: runs as Record<string, unknown>[],
     latestSteps,
     config: (configResult.data ?? null) as PipelineConfig | null,
-    sites: (sitesResult.data ?? []) as { id: string; name: string; slug: string }[],
+    sites: (sitesResult.data ?? []) as { id: string; name: string; slug: string; category_map?: Record<string, { id: number; color: string }> | null }[],
     articles: (articles ?? []) as Record<string, unknown>[],
   };
 }
@@ -162,4 +174,20 @@ export async function updateEditorConfig(updates: {
 
   if (error) return { error: error.message };
   return { config: data as PipelineConfig };
+}
+
+export async function updateSiteCategoryMap(
+  siteId: string,
+  categoryMap: Record<string, { id: number; color: string }>
+) {
+  const db = supabase();
+  const { data, error } = await db
+    .from("sites")
+    .update({ category_map: categoryMap })
+    .eq("id", siteId)
+    .select()
+    .single();
+
+  if (error) return { error: error.message };
+  return { site: data };
 }

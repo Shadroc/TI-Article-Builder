@@ -49,7 +49,7 @@ export default function ArticleQueue({ items, selectedId, onSelect }: ArticleQue
             No articles in queue
           </div>
         )}
-        {items.map((item) => (
+        {[...items].reverse().map((item) => (
           <button
             key={item.id}
             onClick={() => onSelect(item.id)}
@@ -102,7 +102,7 @@ export default function ArticleQueue({ items, selectedId, onSelect }: ArticleQue
               >
                 {item.category}
               </span>
-              {item.sites.map((s) => (
+              {[...new Set(item.sites)].map((s) => (
                 <span key={s} className="font-mono text-[9px] uppercase text-emerald-500/60">
                   {s}
                 </span>

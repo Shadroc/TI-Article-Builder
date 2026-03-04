@@ -10,17 +10,25 @@ import ImageGenerationFlow from "./ImageGenerationFlow";
 import ConfigurationTab from "./ConfigurationTab";
 import ArticlePreviewTab from "./ArticlePreviewTab";
 import PromptsTab from "./PromptsTab";
-import PivotsCategoriesTab from "./PivotsCategoriesTab";
+import PivotsTab from "./PivotsCategoriesTab";
+import CategoriesTab from "./CategoriesTab";
 import { triggerPipelineRun, triggerTestRun, stopPipelineRun, fetchDashboardData } from "./actions";
 import { PipelineConfig } from "@/integrations/supabase";
 
-type Tab = "pipeline" | "config" | "preview" | "prompts" | "pivots";
+type Tab = "pipeline" | "config" | "preview" | "prompts" | "categories" | "pivots";
+
+interface SiteWithCategories {
+  id: string;
+  name: string;
+  slug: string;
+  category_map?: Record<string, { id: number; color: string }> | null;
+}
 
 interface DashboardProps {
   initialRuns: Record<string, unknown>[];
   initialSteps: Record<string, unknown>[];
   initialConfig: PipelineConfig | null;
-  initialSites: { id: string; name: string; slug: string }[];
+  initialSites: SiteWithCategories[];
   initialArticles: Record<string, unknown>[];
 }
 
@@ -61,7 +69,24 @@ function deriveStageStatuses(steps: Record<string, unknown>[]): Record<string, S
 }
 
 function stepsToLogs(steps: Record<string, unknown>[]): LogEntry[] {
-  return steps.map((step) => {
+  const entries: LogEntry[] = [];
+  let lastRunId: string | null = null;
+
+  for (const step of steps) {
+    const runId = step.run_id as string;
+    if (lastRunId !== null && runId !== lastRunId) {
+      const runStarted = (step.started_at as string) ?? "";
+      const runLabel = runStarted
+        ? new Date(runStarted).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })
+        : "earlier";
+      entries.push({
+        timestamp: runStarted || new Date().toISOString(),
+        level: "log",
+        message: `——— Run ${runLabel} ———`,
+      });
+    }
+    lastRunId = runId;
+
     const status = step.status as string;
     const name = (step.step_name as string)?.replace(/_/g, " ") ?? "unknown";
     const artIdx = step.article_index as number;
@@ -86,12 +111,14 @@ function stepsToLogs(steps: Record<string, unknown>[]): LogEntry[] {
       message = `${prefix}${name} — skipped (duplicate)`;
     }
 
-    return {
+    entries.push({
       timestamp: (step.started_at as string) ?? new Date().toISOString(),
       level,
       message,
-    };
-  });
+    });
+  }
+
+  return entries;
 }
 
 function stepsToQueue(steps: Record<string, unknown>[]): QueueItem[] {
@@ -161,6 +188,7 @@ export default function Dashboard({
   const [runs, setRuns] = useState(initialRuns);
   const [steps, setSteps] = useState(initialSteps);
   const [config, setConfig] = useState(initialConfig);
+  const [sites, setSites] = useState(initialSites);
   const [articles, setArticles] = useState(initialArticles);
   const [selectedArticleId, setSelectedArticleId] = useState<string | null>(null);
   const [isStarting, setIsStarting] = useState(false);
@@ -178,6 +206,7 @@ export default function Dashboard({
       setSteps(data.latestSteps);
       setArticles(data.articles);
       setConfig(data.config as PipelineConfig | null);
+      setSites(data.sites as SiteWithCategories[]);
       if (data.runs[0]?.status !== "running") {
         setIsStarting(false);
       }
@@ -242,14 +271,22 @@ export default function Dashboard({
     await poll();
   }
 
-  const stageStatuses = deriveStageStatuses(steps);
+  // Use only latest run's steps for queue and stage track; keep multi-run for logs
+  const latestRunSteps =
+    latestRun?.id && typeof latestRun.id === "string"
+      ? steps.filter((s) => (s.run_id as string) === latestRun.id)
+      : [];
+
+  const stageStatuses = deriveStageStatuses(latestRunSteps);
   const logs = stepsToLogs(steps);
-  const queueItems = stepsToQueue(steps);
+  const queueItems = stepsToQueue(latestRunSteps);
 
   // Derive progress info
   const completedArticles = queueItems.filter((q) => q.status === "complete").length;
   const currentArticleIdx = queueItems.findIndex((q) => q.status === "running");
-  const headlineFetchStep = steps.find((s) => s.step_name === "fetch_headlines" && s.status === "completed");
+  const headlineFetchStep = latestRunSteps.find(
+    (s) => s.step_name === "fetch_headlines" && s.status === "completed"
+  );
   const totalArticleCount = headlineFetchStep
     ? Number((headlineFetchStep.output_summary as string)?.match(/\d+/)?.[0] ?? 0)
     : queueItems.length;
@@ -294,7 +331,7 @@ export default function Dashboard({
 
         {/* Tabs */}
         <div className="flex gap-0 border-b border-[#1a1b22] px-6">
-          {(["pipeline", "config", "preview", "prompts", "pivots"] as Tab[]).map((t) => (
+          {(["pipeline", "config", "preview", "prompts", "categories", "pivots"] as Tab[]).map((t) => (
             <button
               key={t}
               onClick={() => setTab(t)}
@@ -312,7 +349,9 @@ export default function Dashboard({
                 ? "Article Preview"
                 : t === "prompts"
                 ? "Prompts"
-                : "Pivots & Categories"}
+                : t === "categories"
+                ? "Categories"
+                : "Pivots"}
             </button>
           ))}
         </div>
@@ -328,7 +367,7 @@ export default function Dashboard({
           )}
 
           {tab === "config" && (
-            <ConfigurationTab config={config} sites={initialSites} onSaved={poll} />
+            <ConfigurationTab config={config} sites={sites} onSaved={poll} />
           )}
 
           {tab === "prompts" && (
@@ -341,11 +380,16 @@ export default function Dashboard({
             </div>
           )}
 
-          {tab === "pivots" && (
-            <PivotsCategoriesTab
-              categoryMap={config?.category_map ?? undefined}
-              pivotCatalogs={config?.pivot_catalogs ?? undefined}
+          {tab === "categories" && (
+            <CategoriesTab
+              globalCategoryMap={config?.category_map ?? undefined}
+              sites={sites}
+              onSaved={poll}
             />
+          )}
+
+          {tab === "pivots" && (
+            <PivotsTab pivotCatalogs={config?.pivot_catalogs ?? undefined} />
           )}
 
           {tab === "preview" && (

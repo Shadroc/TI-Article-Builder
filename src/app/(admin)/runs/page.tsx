@@ -16,7 +16,7 @@ async function loadDashboardData() {
   const [runsResult, configResult, sitesResult, articlesResult] = await Promise.all([
     db.from("workflow_runs").select("*").order("started_at", { ascending: false }).limit(20),
     db.from("pipeline_config").select("*").limit(1).single(),
-    db.from("sites").select("id, name, slug").eq("active", true),
+    db.from("sites").select("id, name, slug, category_map").eq("active", true),
     db.from("ai_articles")
       .select("*, rss_feed:rss_feed_id(title, link, pub_date, img_url)")
       .order("created_at", { ascending: false })
@@ -27,12 +27,22 @@ async function loadDashboardData() {
   let steps: Record<string, unknown>[] = [];
 
   if (runs.length > 0) {
+    // Include steps from runs in the last 24h so logs persist over the day
+    const cutoff = new Date();
+    cutoff.setHours(cutoff.getHours() - 24);
+    const cutoffIso = cutoff.toISOString();
+    const recentRunIds = (runs as { id: string; started_at?: string }[])
+      .filter((r) => (r.started_at ?? "") >= cutoffIso)
+      .map((r) => r.id)
+      .slice(0, 10);
+    const runIds = recentRunIds.length > 0 ? recentRunIds : [runs[0].id as string];
+
     const { data } = await db
       .from("workflow_steps")
       .select("*")
-      .eq("run_id", runs[0].id as string)
-      .order("article_index")
-      .order("started_at");
+      .in("run_id", runIds)
+      .order("started_at", { ascending: true })
+      .order("article_index", { ascending: true });
     steps = (data ?? []) as Record<string, unknown>[];
   }
 
@@ -40,7 +50,7 @@ async function loadDashboardData() {
     runs,
     steps,
     config: (configResult.data ?? null) as PipelineConfig | null,
-    sites: (sitesResult.data ?? []) as { id: string; name: string; slug: string }[],
+    sites: (sitesResult.data ?? []) as { id: string; name: string; slug: string; category_map?: Record<string, { id: number; color: string }> | null }[],
     articles: (articlesResult.data ?? []) as Record<string, unknown>[],
   };
 }
