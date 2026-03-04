@@ -3,7 +3,8 @@ import { runPipeline } from "@/pipeline/orchestrator";
 import { supabase } from "@/integrations/supabase";
 
 export const dynamic = "force-dynamic";
-export const maxDuration = 300;
+// Pro/Enterprise: up to 800s. Pipeline needs ~2–3 min per article; 6 articles ≈ 15 min.
+export const maxDuration = 800;
 
 export async function GET(request: NextRequest) {
   const authHeader = request.headers.get("authorization");
