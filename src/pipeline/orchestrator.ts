@@ -24,12 +24,17 @@ export interface PipelineOptions {
 }
 
 async function isCancelled(runId: string): Promise<boolean> {
-  const { data } = await supabase()
-    .from("workflow_runs")
-    .select("cancel_requested_at")
-    .eq("id", runId)
-    .single();
-  return !!data?.cancel_requested_at;
+  try {
+    const { data } = await supabase()
+      .from("workflow_runs")
+      .select("cancel_requested_at")
+      .eq("id", runId)
+      .single();
+    return !!data?.cancel_requested_at;
+  } catch {
+    // On network errors, assume not cancelled to avoid premature termination
+    return false;
+  }
 }
 
 async function checkpoint(runId: string): Promise<void> {
@@ -66,7 +71,8 @@ async function updateRun(
   runId: string,
   update: Partial<WorkflowRun>
 ): Promise<void> {
-  await supabase().from("workflow_runs").update(update).eq("id", runId);
+  const { error } = await supabase().from("workflow_runs").update(update).eq("id", runId);
+  if (error) logger.warn("Failed to update run", { runId, error: error.message });
 }
 
 async function logStep(step: Omit<WorkflowStep, "id">): Promise<string> {
@@ -263,10 +269,22 @@ async function processOneArticle(
     status: "running",
   });
 
-  const siteArticles = await raceWithCancel(runId, async () => {
-    const sites = await getActiveSites();
-    return generateSeoPerSite(article, sites);
-  });
+  let siteArticles: Awaited<ReturnType<typeof generateSeoPerSite>>;
+  try {
+    siteArticles = await raceWithCancel(runId, async () => {
+      const sites = await getActiveSites();
+      return generateSeoPerSite(article, sites);
+    });
+  } catch (err) {
+    if (err instanceof CancelledError) throw err;
+    const msg = err instanceof Error ? err.message : String(err);
+    await updateStep(seoStepId, {
+      status: "failed",
+      error: msg,
+      finished_at: new Date().toISOString(),
+    });
+    throw err;
+  }
   await updateStep(seoStepId, {
     status: "completed",
     output_summary: `Generated SEO for ${siteArticles.length} sites`,
@@ -288,7 +306,7 @@ async function processOneArticle(
 
   const publishResults = await raceWithCancel(runId, () =>
     Promise.allSettled(
-      siteArticles.map((siteArticle, i) =>
+      siteArticles.map((siteArticle) =>
         withRetry(`publish_${siteArticle.site.slug}`, () =>
           publishToWordPress(siteArticle, article.cleanedHtml, image), { maxAttempts: 2 }
         )

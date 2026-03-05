@@ -3,6 +3,7 @@ import Dashboard from "./Dashboard";
 import { PipelineConfig } from "@/integrations/supabase";
 
 export const dynamic = "force-dynamic";
+export const maxDuration = 800;
 
 async function loadDashboardData() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;

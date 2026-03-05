@@ -61,7 +61,7 @@ export default function TerminalLogPanel({ logs, isRunning }: TerminalLogPanelPr
           const isLast = i === logs.length - 1;
           return (
             <div
-              key={i}
+              key={`${log.timestamp}-${log.level}-${i}`}
               className={`flex gap-2 font-mono text-[11px] leading-5 ${
                 isLast && log.level === "info" ? "animate-pulse" : ""
               }`}

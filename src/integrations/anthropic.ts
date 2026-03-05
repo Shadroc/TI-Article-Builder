@@ -6,7 +6,7 @@ let _client: Anthropic | null = null;
 
 export function anthropic(): Anthropic {
   if (!_client) {
-    _client = new Anthropic({ apiKey: env().ANTHROPIC_API_KEY });
+    _client = new Anthropic({ apiKey: env().ANTHROPIC_API_KEY, timeout: 120_000 });
   }
   return _client;
 }

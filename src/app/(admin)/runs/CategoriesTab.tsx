@@ -142,15 +142,15 @@ export default function CategoriesTab({
 
   useEffect(() => {
     setSiteCategories((prev) => {
+      const newSites = sites.filter((site) => !(site.id in prev));
+      if (newSites.length === 0) return prev; // bail out if nothing changed
       const next = { ...prev };
-      for (const site of sites) {
-        if (!(site.id in next)) {
-          const map = site.category_map ?? {};
-          next[site.id] =
-            Object.keys(map).length > 0
-              ? Object.entries(map).map(([name, v]) => ({ name, id: v.id, color: v.color }))
-              : [];
-        }
+      for (const site of newSites) {
+        const map = site.category_map ?? {};
+        next[site.id] =
+          Object.keys(map).length > 0
+            ? Object.entries(map).map(([name, v]) => ({ name, id: v.id, color: v.color }))
+            : [];
       }
       return next;
     });

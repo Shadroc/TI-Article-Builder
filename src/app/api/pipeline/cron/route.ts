@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { runPipeline } from "@/pipeline/orchestrator";
 import { supabase } from "@/integrations/supabase";
+import { env } from "@/lib/env";
 
 export const dynamic = "force-dynamic";
 // Pro/Enterprise: up to 800s. Pipeline needs ~2–3 min per article; 6 articles ≈ 15 min.
@@ -8,7 +9,7 @@ export const maxDuration = 800;
 
 export async function GET(request: NextRequest) {
   const authHeader = request.headers.get("authorization");
-  if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
+  if (authHeader !== `Bearer ${env().CRON_SECRET}`) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 

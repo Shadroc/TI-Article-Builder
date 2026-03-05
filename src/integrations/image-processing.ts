@@ -1,5 +1,4 @@
 import sharp from "sharp";
-import { logger } from "@/lib/logger";
 
 /**
  * Fetches the source article page and extracts the og:image (or twitter:image) URL.
@@ -98,20 +97,9 @@ export async function downloadImage(url: string): Promise<{ buffer: Buffer; mime
   return downloadImageWithReferer(url);
 }
 
-/** OpenAI image edits API accepts png, jpeg, gif, webp. Convert unsupported formats (e.g. avif) to PNG. */
-const OPENAI_EDIT_SUPPORTED_FORMATS = new Set(["png", "jpeg", "gif", "webp"]);
-
-const FORMAT_TO_MIME: Record<string, string> = {
-  png: "image/png",
-  jpeg: "image/jpeg",
-  jpg: "image/jpeg",
-  gif: "image/gif",
-  webp: "image/webp",
-};
-
 export async function ensureSupportedForEdit(
   buffer: Buffer,
-  mimeType: string
+  _mimeType?: string
 ): Promise<{ buffer: Buffer; mimeType: string }> {
   // Always re-encode to PNG via sharp. This guarantees:
   // 1. Unsupported formats (avif, tiff, svg) get converted

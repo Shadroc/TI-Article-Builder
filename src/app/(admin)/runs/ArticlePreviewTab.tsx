@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import ArticleQueue, { QueueItem } from "./ArticleQueue";
 
 const CATEGORY_COLORS: Record<string, string> = {
@@ -119,6 +119,13 @@ function ArticlePreview({ article }: { article: Record<string, unknown> }) {
   const [imageExpanded, setImageExpanded] = useState<"original" | "output" | null>(null);
   const title = (article.title as string) ?? "Untitled";
   const content = (article.content as string) ?? "";
+  const [sanitizedContent, setSanitizedContent] = useState(content);
+
+  useEffect(() => {
+    import("dompurify").then(({ default: DOMPurify }) => {
+      setSanitizedContent(DOMPurify.sanitize(content));
+    });
+  }, [content]);
   const rss = article.rss_feed as Record<string, unknown> | null;
   // Prefer the exact URL used as input (stored per-article), fall back to StockNewsAPI URL for older articles
   const originalImageUrl = (article.source_image_url as string) || (rss?.img_url as string) || null;
@@ -289,7 +296,7 @@ function ArticlePreview({ article }: { article: Record<string, unknown> }) {
       {/* Rendered article */}
       <div
         className="prose prose-invert prose-sm max-w-none font-serif text-[#c8c9d0] prose-headings:font-serif prose-headings:text-white prose-a:text-blue-400 prose-strong:text-white prose-blockquote:border-blue-500/40 prose-blockquote:text-[#8b8d9a]"
-        dangerouslySetInnerHTML={{ __html: content }}
+        dangerouslySetInnerHTML={{ __html: sanitizedContent }}
       />
 
       {/* Lightbox for Original or Output image */}

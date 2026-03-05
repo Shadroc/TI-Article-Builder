@@ -218,9 +218,12 @@ export default function Dashboard({
   // Poll while running (1s for responsive log updates; was 2s)
   useEffect(() => {
     if (!shouldPoll) return;
-    poll(); // poll immediately, then every 1s
+    const initial = setTimeout(poll, 0); // defer first call to avoid setState-in-effect lint
     const interval = setInterval(poll, 1000);
-    return () => clearInterval(interval);
+    return () => {
+      clearTimeout(initial);
+      clearInterval(interval);
+    };
   }, [shouldPoll, poll]);
 
   // Elapsed time counter

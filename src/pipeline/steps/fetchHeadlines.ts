@@ -1,7 +1,6 @@
 import {
   fetchTrendingHeadlines,
   fetchArticleExcerpt,
-  StockNewsHeadline,
 } from "@/integrations/stocknews";
 import { logger } from "@/lib/logger";
 

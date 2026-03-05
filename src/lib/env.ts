@@ -12,9 +12,28 @@ const envSchema = z.object({
   GOOGLE_CSE_API_KEY: z.string().min(1),
   GOOGLE_CSE_CX: z.string().min(1),
   JINA_API_KEY: z.string().min(1),
-  WORDPRESS_SITES: z.string().min(1),
+  WORDPRESS_SITES: z
+    .string()
+    .min(1)
+    .refine((v) => {
+      try {
+        const parsed = JSON.parse(v);
+        return (
+          Array.isArray(parsed) &&
+          parsed.every(
+            (s) =>
+              typeof s.slug === "string" &&
+              typeof s.username === "string" &&
+              typeof s.appPassword === "string"
+          )
+        );
+      } catch {
+        return false;
+      }
+    }, "WORDPRESS_SITES must be a valid JSON array of { slug, username, appPassword }"),
   PIPELINE_SECRET: z.string().min(1),
   CRON_SECRET: z.string().min(1),
+  ADMIN_PASSWORD: z.string().min(12).optional(),
 });
 
 export type Env = z.infer<typeof envSchema>;
@@ -41,5 +60,9 @@ export interface WordPressCredential {
 }
 
 export function getWordPressCredentials(): WordPressCredential[] {
-  return JSON.parse(env().WORDPRESS_SITES) as WordPressCredential[];
+  try {
+    return JSON.parse(env().WORDPRESS_SITES) as WordPressCredential[];
+  } catch {
+    throw new Error("WORDPRESS_SITES contains invalid JSON — check the env var format");
+  }
 }

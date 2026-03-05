@@ -47,7 +47,7 @@ Deploy to Vercel. The cron schedule is configured in `vercel.json`.
 | `/api/pipeline/run` | POST | Bearer PIPELINE_SECRET | Manual trigger |
 | `/api/pipeline/cron` | GET | Bearer CRON_SECRET | Vercel cron trigger |
 | `/api/pipeline/status` | GET | Bearer PIPELINE_SECRET | Run history + details |
-| `/api/pipeline/retry` | POST | Bearer PIPELINE_SECRET | Retry a failed run |
+| `/api/pipeline/retry` | POST | Bearer PIPELINE_SECRET | Start a new full pipeline run (same as manual trigger) |
 
 ## Admin Dashboard
 

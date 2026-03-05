@@ -67,7 +67,7 @@ function extractMetadata(html: string): {
     ? tagsMatch[1].split(",").map((t) => t.trim()).filter(Boolean)
     : [];
 
-  let cleaned = html
+  const cleaned = html
     .replace(/<h1[^>]*>[\s\S]*?<\/h1>/i, "")
     .replace(/<p[^>]*>\s*<strong>\s*Category:\s*<\/strong>[\s\S]*?<\/p>/i, "")
     .replace(/<p[^>]*>\s*<strong>\s*Tags:\s*<\/strong>[\s\S]*?<\/p>/i, "")

@@ -72,20 +72,32 @@ Return ONLY a JSON object with these fields:
 - subjectDescription: string (main subject of selected image)
 - colorTarget: string (what element to apply brand color to)`;
 
-  const res = await openai().chat.completions.create({
-    model: "gpt-4o",
-    response_format: { type: "json_object" },
-    messages: [
-      { role: "system", content: systemMessage },
-      {
-        role: "user",
-        content: [{ type: "text" as const, text: userText }, ...imageContent],
-      },
-    ],
-  });
+  const res = await openai().chat.completions.create(
+    {
+      model: "gpt-4o",
+      response_format: { type: "json_object" },
+      messages: [
+        { role: "system", content: systemMessage },
+        {
+          role: "user",
+          content: [{ type: "text" as const, text: userText }, ...imageContent],
+        },
+      ],
+    },
+    { signal: AbortSignal.timeout(120_000) }
+  );
 
   const text = res.choices[0]?.message?.content ?? "{}";
-  return JSON.parse(text) as ImageSelectionResult;
+  let parsed: Partial<ImageSelectionResult>;
+  try {
+    parsed = JSON.parse(text) as Partial<ImageSelectionResult>;
+  } catch {
+    throw new Error(`selectBestImage: OpenAI returned invalid JSON: ${text.slice(0, 200)}`);
+  }
+  if (typeof parsed.selectedIndex !== "number") {
+    throw new Error(`selectBestImage: missing selectedIndex in response: ${text.slice(0, 200)}`);
+  }
+  return parsed as ImageSelectionResult;
 }
 
 const IMAGE_EDIT_TIMEOUT_MS = 3 * 60 * 1000; // 3 minutes
@@ -167,26 +179,45 @@ export async function rewriteSeoForSite(
   site_id: string;
   site_name: string;
 }> {
-  const res = await openai().chat.completions.create({
-    model: "gpt-4o",
-    response_format: { type: "json_object" },
-    messages: [
-      {
-        role: "system",
-        content: `You are an expert SEO content optimizer. Create highly unique meta tags specifically tailored for the site ${siteName}. The title MUST be uniquely rewritten, up to 60 chars. Description up to 160 chars. Keyword is the main topic. CRITICAL REQUIREMENT: You MUST include the following site metadata exactly as provided in your JSON output: "site_slug": "${siteSlug}", "site_id": "${siteId}", "site_name": "${siteName}"`,
-      },
-      {
-        role: "user",
-        content: `Create metatitle and metadescription focusing ONLY on the specific angle or audience for ${siteName}. The title and description MUST NOT be the exact same as other sites republishing this. Make it completely unique.
+  const res = await openai().chat.completions.create(
+    {
+      model: "gpt-4o",
+      response_format: { type: "json_object" },
+      messages: [
+        {
+          role: "system",
+          content: `You are an expert SEO content optimizer. Create highly unique meta tags specifically tailored for the site ${siteName}. The title MUST be uniquely rewritten, up to 60 chars. Description up to 160 chars. Keyword is the main topic. CRITICAL REQUIREMENT: You MUST include the following site metadata exactly as provided in your JSON output: "site_slug": "${siteSlug}", "site_id": "${siteId}", "site_name": "${siteName}"`,
+        },
+        {
+          role: "user",
+          content: `Create metatitle and metadescription focusing ONLY on the specific angle or audience for ${siteName}. The title and description MUST NOT be the exact same as other sites republishing this. Make it completely unique.
 - Original Article Title: ${articleTitle}
 - Article Content (first 2000 chars): ${articleContent.substring(0, 2000)}
 - Site Name: ${siteName}
 
 Return a JSON object with: metatitle, metadescription, keyword, site_slug, site_id, site_name`,
-      },
-    ],
-  });
+        },
+      ],
+    },
+    { signal: AbortSignal.timeout(120_000) }
+  );
 
   const text = res.choices[0]?.message?.content ?? "{}";
-  return JSON.parse(text);
+  let parsed: Record<string, string>;
+  try {
+    parsed = JSON.parse(text) as Record<string, string>;
+  } catch {
+    throw new Error(`rewriteSeoForSite: OpenAI returned invalid JSON: ${text.slice(0, 200)}`);
+  }
+  if (!parsed.metatitle || !parsed.metadescription) {
+    throw new Error(`rewriteSeoForSite: missing required fields in response: ${text.slice(0, 200)}`);
+  }
+  return {
+    metatitle: parsed.metatitle,
+    metadescription: parsed.metadescription,
+    keyword: parsed.keyword ?? "",
+    site_slug: parsed.site_slug ?? siteSlug,
+    site_id: parsed.site_id ?? siteId,
+    site_name: parsed.site_name ?? siteName,
+  };
 }

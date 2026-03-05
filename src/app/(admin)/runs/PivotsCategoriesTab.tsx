@@ -24,12 +24,15 @@ export default function PivotsTab({ pivotCatalogs }: PivotsTabProps) {
   );
   const [isPending, startTransition] = useTransition();
   const [savedPivots, setSavedPivots] = useState(false);
+  const [jsonError, setJsonError] = useState<string | null>(null);
 
   function savePivotCatalogs() {
     let parsed: PivotCatalogs;
     try {
       parsed = JSON.parse(pivotCatalogsJson) as PivotCatalogs;
-    } catch {
+      setJsonError(null);
+    } catch (err) {
+      setJsonError(err instanceof Error ? err.message : "Invalid JSON");
       return;
     }
     startTransition(async () => {
@@ -58,6 +61,9 @@ export default function PivotsTab({ pivotCatalogs }: PivotsTabProps) {
           className="mb-3 w-full rounded border border-[#1a1b22] bg-[#050507] px-3 py-2 font-mono text-[11px] leading-relaxed text-white focus:border-blue-500 focus:outline-none"
           spellCheck={false}
         />
+        {jsonError && (
+          <p className="mb-2 font-mono text-[11px] text-red-400">JSON error: {jsonError}</p>
+        )}
         <button
           onClick={savePivotCatalogs}
           disabled={isPending}
