@@ -17,11 +17,11 @@ Automated financial article generation and multi-site WordPress publishing pipel
 3. Search references via Jina AI
 4. Generate article HTML with Anthropic Claude
 5. Extract category, tags, and headline metadata
-6. Select/edit featured image via OpenAI
-7. Resize to 900x600 WebP
+6. Select/edit featured image via OpenAI (90s timeout, 200s budget cap)
+7. Resize to 900x600 WebP (graceful degradation: publishes without image on failure)
 8. Generate per-site SEO (metatitle, metadescription) via OpenAI
-9. Publish as draft to each WordPress site
-10. Save article record to `ai_articles`
+9. Publish as draft to each WordPress site (idempotency guard: skips if title exists)
+10. Save article record to `ai_articles` (idempotency: rss_feed_id + site_id check)
 
 ## Setup
 
@@ -49,7 +49,24 @@ Deploy to Vercel. The cron schedule is configured in `vercel.json`.
 | `/api/pipeline/status` | GET | Bearer PIPELINE_SECRET | Run history + details |
 | `/api/pipeline/retry` | POST | Bearer PIPELINE_SECRET | Start a new full pipeline run (same as manual trigger) |
 
+## Error Handling
+
+Errors are categorized into 5 types: `API_TIMEOUT`, `RATE_LIMIT`, `NETWORK`, `MALFORMED_RESPONSE`, `UNKNOWN`. Retries are automatic for retryable categories (timeouts, rate limits, network errors). Non-retryable errors fail immediately.
+
 ## Admin Dashboard
 
-Visit `/runs` to see pipeline run history, trigger new runs, and inspect per-step logs.
+Visit `/runs` to access the dashboard. Two modes:
+- **Active**: live pipeline stage track, terminal logs with step durations, smart auto-scroll
+- **Idle**: last run summary, run history with expandable steps, sparkline visualization
+
+Three tabs: Dashboard, Articles, Settings. Run confirmation dialog protects against accidental pipeline triggers.
+
 Requires `ADMIN_PASSWORD` in `.env.local`; you will be prompted to sign in.
+
+## Testing
+
+```bash
+npx vitest run
+```
+
+17 tests across error categorization (8), retry utility (5), and WordPress publishing (4).
