@@ -46,7 +46,8 @@ async function downloadCandidateImages(
 
 export async function processArticleImage(
   rssItem: RssFeedRow,
-  article: ArticleResult
+  article: ArticleResult,
+  _signal?: AbortSignal
 ): Promise<ProcessedImage> {
   const { editor_prompts: prompts, pivot_catalogs } = await getEditorConfig();
   const catalogs = pivot_catalogs ?? DEFAULT_PIVOT_CATALOGS;

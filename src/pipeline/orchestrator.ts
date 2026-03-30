@@ -8,6 +8,8 @@ import { publishToWordPress } from "./steps/publishWordpress";
 import { saveAiArticle } from "./steps/saveAiArticle";
 import { withRetry } from "@/lib/retry";
 import { logger } from "@/lib/logger";
+import { categorizeError } from "@/lib/error-categories";
+import { ProcessedImage } from "./steps/processImage";
 
 export class CancelledError extends Error {
   constructor() {
@@ -83,7 +85,7 @@ async function logStep(step: Omit<WorkflowStep, "id">): Promise<string> {
     .single();
 
   if (error) {
-    console.error("Failed to log step:", error);
+    logger.warn("Failed to log step", { error: error.message });
     return "";
   }
   return data.id as string;
@@ -180,6 +182,7 @@ async function processOneArticle(
   articleIndex: number,
   headline: { news_id: string; title: string; news_url: string; image_url: string; text: string; date: string }
 ): Promise<void> {
+  const articleStartMs = Date.now();
   await checkpoint(runId);
 
   const upsertStepId = await logStep({
@@ -236,29 +239,39 @@ async function processOneArticle(
     status: "running",
   });
 
-  let image: Awaited<ReturnType<typeof processArticleImage>>;
+  // 200s image budget cap — dynamic: min(200, 800 - elapsed - 100)
+  const elapsedSeconds = (Date.now() - articleStartMs) / 1000;
+  const imageBudgetMs = Math.min(200_000, Math.max(30_000, (800 - elapsedSeconds - 100) * 1000));
+
+  let image: ProcessedImage | null = null;
   try {
     image = await raceWithCancel(runId, () =>
-      withRetry("process_image", () =>
-        processArticleImage(rssItem, article), { maxAttempts: 2 }
+      withRetry("process_image", (signal) =>
+        processArticleImage(rssItem, article, signal), { maxAttempts: 2, timeoutMs: imageBudgetMs }
       )
     );
   } catch (err) {
     if (err instanceof CancelledError) throw err;
     const msg = err instanceof Error ? err.message : String(err);
-    await updateStep(imageStepId, {
-      status: "failed",
-      error: msg,
-      finished_at: new Date().toISOString(),
+    const cat = categorizeError(err);
+    logger.warn("Image processing failed, continuing without image", {
+      runId, articleIndex, error: msg, category: cat.category,
     });
-    throw err;
+    await updateStep(imageStepId, {
+      status: "completed",
+      output_summary: `Image skipped: ${msg}`,
+      finished_at: new Date().toISOString(),
+      step_metadata: { needs_image: true, error_category: cat.category },
+    });
   }
 
-  await updateStep(imageStepId, {
-    status: "completed",
-    output_summary: `Image: ${image.fileName}`,
-    finished_at: new Date().toISOString(),
-  });
+  if (image) {
+    await updateStep(imageStepId, {
+      status: "completed",
+      output_summary: `Image: ${image.fileName}`,
+      finished_at: new Date().toISOString(),
+    });
+  }
 
   await checkpoint(runId);
 
@@ -323,18 +336,22 @@ async function processOneArticle(
     const stepId = publishStepIds[i];
 
     if (result.status === "fulfilled") {
+      const pubResult = result.value;
       await saveAiArticle(
         rssItem.id,
         siteArticle.metatitle,
         article.cleanedHtml,
         siteArticle.site.id,
-        result.value,
-        image.imageSource,
-        image.sourceImageUrl
+        pubResult,
+        image?.imageSource,
+        image?.sourceImageUrl
       );
+      const summary = pubResult.needsImage
+        ? `Published post ${pubResult.postId} to ${siteArticle.site.slug} (needs_image)`
+        : `Published post ${pubResult.postId} to ${siteArticle.site.slug}`;
       await updateStep(stepId, {
         status: "completed",
-        output_summary: `Published post ${result.value.postId} to ${siteArticle.site.slug}`,
+        output_summary: summary,
         finished_at: now,
       });
     } else {
