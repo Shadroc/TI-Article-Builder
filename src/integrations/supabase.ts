@@ -125,4 +125,6 @@ export interface WorkflowStep {
   error?: string;
   started_at?: string;
   finished_at?: string;
+  /** Structured metadata: needs_image flag, quality signals, duration breakdown */
+  step_metadata?: Record<string, unknown> | null;
 }

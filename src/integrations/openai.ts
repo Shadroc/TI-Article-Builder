@@ -100,7 +100,7 @@ Return ONLY a JSON object with these fields:
   return parsed as ImageSelectionResult;
 }
 
-const IMAGE_EDIT_TIMEOUT_MS = 3 * 60 * 1000; // 3 minutes
+const IMAGE_EDIT_TIMEOUT_MS = 90_000; // 90s per-editor timeout
 
 const EDIT_EXT: Record<string, string> = {
   "image/png": "png",
@@ -157,7 +157,7 @@ export async function editImage(
     return Buffer.from(b64, "base64");
   } catch (err) {
     if (controller.signal.aborted) {
-      throw new Error("Image edit timed out after 3 minutes");
+      throw new Error("Image edit timed out after 90s");
     }
     throw err;
   } finally {

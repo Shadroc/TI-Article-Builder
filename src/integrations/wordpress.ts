@@ -11,6 +11,27 @@ function authHeader(username: string, appPassword: string): string {
   return "Basic " + Buffer.from(`${username}:${appPassword}`).toString("base64");
 }
 
+/** Check if a post with this exact title already exists (for idempotency). */
+export async function postExistsByTitle(
+  site: SiteRow,
+  title: string
+): Promise<{ id: number; link: string } | null> {
+  const creds = getCreds(site.slug);
+  const baseUrl = site.wp_base_url.replace(/\/$/, "");
+  const params = new URLSearchParams({ search: title, per_page: "5", status: "draft,publish", context: "edit" });
+
+  const res = await fetch(`${baseUrl}/wp-json/wp/v2/posts?${params}`, {
+    headers: { Authorization: authHeader(creds.username, creds.appPassword) },
+    signal: AbortSignal.timeout(15_000),
+  });
+
+  if (!res.ok) return null; // Non-fatal — proceed with publish attempt
+
+  const posts = (await res.json()) as { id: number; link: string; title: { raw: string; rendered: string } }[];
+  const match = posts.find((p) => (p.title.raw ?? p.title.rendered) === title);
+  return match ? { id: match.id, link: match.link } : null;
+}
+
 export async function uploadMedia(
   site: SiteRow,
   imageBuffer: Buffer,
