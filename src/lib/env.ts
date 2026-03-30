@@ -34,6 +34,7 @@ const envSchema = z.object({
   PIPELINE_SECRET: z.string().min(1),
   CRON_SECRET: z.string().min(1),
   ADMIN_PASSWORD: z.string().min(12).optional(),
+  GEMINI_API_KEY: z.string().min(1).optional(),
 });
 
 export type Env = z.infer<typeof envSchema>;

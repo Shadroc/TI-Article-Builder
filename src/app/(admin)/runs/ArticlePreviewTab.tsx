@@ -2,14 +2,7 @@
 
 import { useState, useMemo, useEffect } from "react";
 import ArticleQueue, { QueueItem } from "./ArticleQueue";
-
-const CATEGORY_COLORS: Record<string, string> = {
-  Finance: "#00AB76",
-  Technology: "#067BC2",
-  Energy: "#dc6a3f",
-  Culture: "#C2C6A2",
-  "Food & Health": "#663300",
-};
+import { CATEGORY_COLORS } from "./design-tokens";
 
 function normalizeTitle(s: string): string {
   return s.trim().toLowerCase().replace(/\s+/g, " ");

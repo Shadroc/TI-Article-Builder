@@ -6,6 +6,7 @@ export interface LogEntry {
   timestamp: string;
   level: "success" | "error" | "info" | "log";
   message: string;
+  durationSeconds?: number;
 }
 
 interface TerminalLogPanelProps {
@@ -22,9 +23,21 @@ const PREFIX: Record<LogEntry["level"], { symbol: string; color: string }> = {
 
 export default function TerminalLogPanel({ logs, isRunning }: TerminalLogPanelProps) {
   const endRef = useRef<HTMLDivElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const userScrolledUp = useRef(false);
+
+  // Pause auto-scroll when user scrolls up, resume when they scroll to bottom
+  function handleScroll() {
+    const el = containerRef.current;
+    if (!el) return;
+    const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
+    userScrolledUp.current = !atBottom;
+  }
 
   useEffect(() => {
-    endRef.current?.scrollIntoView({ behavior: "smooth" });
+    if (!userScrolledUp.current) {
+      endRef.current?.scrollIntoView({ behavior: "smooth" });
+    }
   }, [logs.length]);
 
   return (
@@ -44,7 +57,7 @@ export default function TerminalLogPanel({ logs, isRunning }: TerminalLogPanelPr
           {logs.length} entries
         </span>
       </div>
-      <div className="flex-1 overflow-y-auto p-3">
+      <div ref={containerRef} onScroll={handleScroll} className="flex-1 overflow-y-auto p-3">
         {logs.length === 0 && !isRunning && (
           <div className="font-mono text-xs text-[#3b3d4a]">
             No logs. Click RUN PIPELINE to start.
@@ -71,7 +84,7 @@ export default function TerminalLogPanel({ logs, isRunning }: TerminalLogPanelPr
               </span>
               <span className={`shrink-0 ${pref.color}`}>{pref.symbol}</span>
               <span
-                className={
+                className={`flex-1 ${
                   log.level === "error"
                     ? "text-red-300"
                     : log.level === "success"
@@ -79,10 +92,17 @@ export default function TerminalLogPanel({ logs, isRunning }: TerminalLogPanelPr
                     : log.level === "info"
                     ? "text-blue-300"
                     : "text-[#8b8d9a]"
-                }
+                }`}
               >
                 {log.message}
               </span>
+              {log.durationSeconds !== undefined && (
+                <span className="ml-auto shrink-0 tabular-nums text-[#3b3d4a]">
+                  {log.durationSeconds < 60
+                    ? `${log.durationSeconds.toFixed(1)}s`
+                    : `${Math.floor(log.durationSeconds / 60)}m ${Math.round(log.durationSeconds % 60)}s`}
+                </span>
+              )}
             </div>
           );
         })}

@@ -6,16 +6,14 @@ import PipelineStageTrack, { StageStatus, STAGES } from "./PipelineStageTrack";
 import StatsBar from "./StatsBar";
 import type { QueueItem } from "./ArticleQueue";
 import TerminalLogPanel, { LogEntry } from "./TerminalLogPanel";
-import ImageGenerationFlow from "./ImageGenerationFlow";
-import ConfigurationTab from "./ConfigurationTab";
+import LastRunSummary from "./LastRunSummary";
+import RunHistoryView from "./RunHistoryView";
 import ArticlePreviewTab from "./ArticlePreviewTab";
-import PromptsTab from "./PromptsTab";
-import PivotsTab from "./PivotsCategoriesTab";
-import CategoriesTab from "./CategoriesTab";
+import SettingsPanel from "./SettingsPanel";
 import { triggerPipelineRun, triggerTestRun, stopPipelineRun, fetchDashboardData } from "./actions";
 import { PipelineConfig } from "@/integrations/supabase";
 
-type Tab = "pipeline" | "config" | "preview" | "prompts" | "categories" | "pivots";
+type Tab = "dashboard" | "articles" | "settings";
 
 interface SiteWithCategories {
   id: string;
@@ -94,6 +92,14 @@ function stepsToLogs(steps: Record<string, unknown>[]): LogEntry[] {
     const output = step.output_summary as string;
     const error = step.error as string;
 
+    // Calculate step duration (ms → seconds, 1 decimal)
+    const startedAt = step.started_at as string | null;
+    const endedAt = step.ended_at as string | null;
+    let durationSeconds: number | undefined;
+    if (startedAt && endedAt) {
+      durationSeconds = Math.round((new Date(endedAt).getTime() - new Date(startedAt).getTime()) / 100) / 10;
+    }
+
     let level: LogEntry["level"] = "log";
     let message = `${prefix}${name}`;
 
@@ -106,6 +112,7 @@ function stepsToLogs(steps: Record<string, unknown>[]): LogEntry[] {
     } else if (status === "running") {
       level = "info";
       message = `${prefix}${name} ...`;
+      durationSeconds = undefined; // no duration yet
     } else if (status === "skipped") {
       level = "log";
       message = `${prefix}${name} — skipped (duplicate)`;
@@ -115,6 +122,7 @@ function stepsToLogs(steps: Record<string, unknown>[]): LogEntry[] {
       timestamp: (step.started_at as string) ?? new Date().toISOString(),
       level,
       message,
+      durationSeconds,
     });
   }
 
@@ -184,7 +192,7 @@ export default function Dashboard({
   initialSites,
   initialArticles,
 }: DashboardProps) {
-  const [tab, setTab] = useState<Tab>("pipeline");
+  const [tab, setTab] = useState<Tab>("dashboard");
   const [runs, setRuns] = useState(initialRuns);
   const [steps, setSteps] = useState(initialSteps);
   const [config, setConfig] = useState(initialConfig);
@@ -198,6 +206,7 @@ export default function Dashboard({
   const latestRun = runs[0] ?? null;
   const isRunning = latestRun?.status === "running";
   const shouldPoll = isRunning || isStarting;
+  const isActive = isRunning || isStarting;
 
   const poll = useCallback(async () => {
     try {
@@ -215,10 +224,10 @@ export default function Dashboard({
     }
   }, []);
 
-  // Poll while running (1s for responsive log updates; was 2s)
+  // Poll while running (1s for responsive log updates)
   useEffect(() => {
     if (!shouldPoll) return;
-    const initial = setTimeout(poll, 0); // defer first call to avoid setState-in-effect lint
+    const initial = setTimeout(poll, 0);
     const interval = setInterval(poll, 1000);
     return () => {
       clearTimeout(initial);
@@ -244,7 +253,7 @@ export default function Dashboard({
 
   async function handleRun() {
     setIsStarting(true);
-    setTab("pipeline");
+    setTab("dashboard");
     try {
       await triggerPipelineRun();
       await poll();
@@ -256,7 +265,7 @@ export default function Dashboard({
 
   async function handleTest() {
     setIsStarting(true);
-    setTab("pipeline");
+    setTab("dashboard");
     try {
       await triggerTestRun();
       await poll();
@@ -307,102 +316,91 @@ export default function Dashboard({
     }
   }
 
+  // Tab labels adapt based on active/idle mode
+  const TAB_CONFIG: { key: Tab; label: string }[] = [
+    { key: "dashboard", label: isActive ? "Live Pipeline" : "Dashboard" },
+    { key: "articles", label: "Articles" },
+    { key: "settings", label: "Settings" },
+  ];
+
   return (
-    <div className="min-h-screen bg-[#0a0b0f] text-white">
+    <div className="min-h-screen bg-[#0a0b0f] text-white" role="main">
       <DashboardHeader
-        isRunning={isRunning || isStarting}
+        isRunning={isActive}
         onRun={handleRun}
         onTest={handleTest}
         onStop={handleStop}
+        runs={runs}
       />
 
       <div className="pt-14">
-        <PipelineStageTrack
-          stageStatuses={stageStatuses}
-          currentArticle={currentArticleIdx >= 0 ? currentArticleIdx : completedArticles}
-          totalArticles={totalArticleCount}
-          elapsedSeconds={isRunning ? elapsedSeconds : undefined}
-        />
+        {/* Active mode: show stage track and stats */}
+        {isActive && (
+          <>
+            <PipelineStageTrack
+              stageStatuses={stageStatuses}
+              currentArticle={currentArticleIdx >= 0 ? currentArticleIdx : completedArticles}
+              totalArticles={totalArticleCount}
+              elapsedSeconds={isRunning ? elapsedSeconds : undefined}
+            />
+            {(total > 0 || isRunning) && (
+              <StatsBar
+                total={total}
+                published={published}
+                pending={pending}
+                categoryCounts={categoryCounts}
+              />
+            )}
+          </>
+        )}
 
-        {(total > 0 || isRunning) && (
-          <StatsBar
-            total={total}
-            published={published}
-            pending={pending}
-            categoryCounts={categoryCounts}
-          />
+        {/* Idle mode: show last run summary */}
+        {!isActive && tab === "dashboard" && (
+          <LastRunSummary run={latestRun} steps={steps} />
         )}
 
         {/* Tabs */}
-        <div className="flex gap-0 border-b border-[#1a1b22] px-6">
-          {(["pipeline", "config", "preview", "prompts", "categories", "pivots"] as Tab[]).map((t) => (
+        <div className="flex items-center gap-0 border-b border-[#1a1b22] px-6">
+          {TAB_CONFIG.map((t) => (
             <button
-              key={t}
-              onClick={() => setTab(t)}
+              key={t.key}
+              onClick={() => setTab(t.key)}
               className={`border-b-2 px-4 py-2 font-mono text-xs transition ${
-                tab === t
+                tab === t.key
                   ? "border-blue-500 text-white"
                   : "border-transparent text-[#3b3d4a] hover:text-[#6b6d7a]"
               }`}
             >
-              {t === "pipeline"
-                ? "Pipeline"
-                : t === "config"
-                ? "Configuration"
-                : t === "preview"
-                ? "Article Preview"
-                : t === "prompts"
-                ? "Prompts"
-                : t === "categories"
-                ? "Categories"
-                : "Pivots"}
+              {t.label}
             </button>
           ))}
         </div>
 
         {/* Tab content */}
         <div className="min-h-[500px]">
-          {tab === "pipeline" && (
+          {tab === "dashboard" && isActive && (
             <div className="flex flex-col gap-4 p-4">
-              <div className="h-[500px] shrink-0">
-                <TerminalLogPanel logs={logs} isRunning={isRunning || isStarting} />
+              <div className="h-[60vh] min-h-[300px] max-h-[600px] shrink-0">
+                <TerminalLogPanel logs={logs} isRunning={isActive} />
               </div>
             </div>
           )}
 
-          {tab === "config" && (
-            <ConfigurationTab config={config} sites={sites} onSaved={poll} />
+          {tab === "dashboard" && !isActive && (
+            <RunHistoryView runs={runs} allSteps={steps} />
           )}
 
-          {tab === "prompts" && (
-            <div className="flex flex-col gap-4 p-4">
-              <ImageGenerationFlow />
-              <PromptsTab
-                editorPrompts={config?.editor_prompts ?? undefined}
-                onSaved={poll}
-              />
-            </div>
-          )}
-
-          {tab === "categories" && (
-            <CategoriesTab
-              globalCategoryMap={config?.category_map ?? undefined}
-              sites={sites}
-              onSaved={poll}
-            />
-          )}
-
-          {tab === "pivots" && (
-            <PivotsTab pivotCatalogs={config?.pivot_catalogs ?? undefined} />
-          )}
-
-          {tab === "preview" && (
+          {tab === "articles" && (
             <ArticlePreviewTab
               items={queueItems}
               selectedId={selectedArticleId}
               onSelect={setSelectedArticleId}
               articles={articles}
             />
+          )}
+
+          {tab === "settings" && (
+            <SettingsPanel config={config} sites={sites} onSaved={poll} />
           )}
         </div>
       </div>
