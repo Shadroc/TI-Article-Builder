@@ -1,12 +1,6 @@
 "use client";
 
-const CATEGORY_COLORS: Record<string, string> = {
-  Finance: "#00AB76",
-  Technology: "#067BC2",
-  Energy: "#dc6a3f",
-  Culture: "#C2C6A2",
-  "Food & Health": "#663300",
-};
+import { CATEGORY_COLORS } from "./design-tokens";
 
 const STEP_LABELS: Record<string, string> = {
   upsert_rss_feed: "Saving",
