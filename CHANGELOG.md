@@ -2,6 +2,21 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.1.1.0] - 2026-03-31
+
+### Added
+- Per-site article body rewriting via Claude Sonnet (`rewriteArticleForSite`) — each WordPress site gets uniquely phrased content for independent Google indexability
+- Per-site image filenames — appends site slug to prevent CDN/WordPress media deduplication
+- Alt text support in `uploadMedia()` using image `subjectDescription` from AI selection
+- Rewrite validation guardrails: HTML structure check, length bounds (50-150%), link preservation, added-link rejection, script/style tag rejection
+- `Promise.allSettled` fallback — if a per-site rewrite fails, that site publishes with the original HTML
+- Test suite for `rewriteArticleForSite` validation (6 tests)
+- Test suite for `generateSeoPerSite` rewrite + fallback behavior (5 tests)
+
+### Fixed
+- Null pointer crash in orchestrator when image processing fails and per-site publish runs
+- Alt text sanitization — strips HTML tags and caps length before sending to WordPress
+
 ## [0.1.0.0] - 2026-03-30
 
 ### Added

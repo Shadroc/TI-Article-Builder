@@ -1,5 +1,6 @@
 import { getWordPressCredentials } from "@/lib/env";
 import { SiteRow } from "@/integrations/supabase";
+import { logger } from "@/lib/logger";
 
 function getCreds(slug: string) {
   const creds = getWordPressCredentials().find((c) => c.slug === slug);
@@ -36,7 +37,8 @@ export async function uploadMedia(
   site: SiteRow,
   imageBuffer: Buffer,
   fileName: string,
-  mimeType: string
+  mimeType: string,
+  altText?: string
 ): Promise<{ id: number; source_url: string }> {
   const creds = getCreds(site.slug);
   const baseUrl = site.wp_base_url.replace(/\/$/, "");
@@ -58,6 +60,28 @@ export async function uploadMedia(
   }
 
   const json = await res.json();
+
+  if (altText) {
+    try {
+      const altRes = await fetch(`${baseUrl}/wp-json/wp/v2/media/${json.id}`, {
+        method: "POST",
+        headers: {
+          Authorization: authHeader(creds.username, creds.appPassword),
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ alt_text: altText.replace(/<[^>]*>/g, "").slice(0, 500) }),
+        signal: AbortSignal.timeout(10_000),
+      });
+      if (!altRes.ok) {
+        logger.warn("Alt text update failed (non-fatal)", {
+          siteSlug: site.slug,
+          mediaId: json.id,
+          status: altRes.status,
+        });
+      }
+    } catch { /* alt text is best-effort — don't fail the publish */ }
+  }
+
   return { id: json.id, source_url: json.source_url };
 }
 

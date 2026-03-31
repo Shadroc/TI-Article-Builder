@@ -46,7 +46,7 @@ export async function publishToWordPress(
   // Upload image if available
   let media: { id: number; source_url: string } | null = null;
   if (image) {
-    media = await uploadMedia(site, image.buffer, image.fileName, image.mimeType);
+    media = await uploadMedia(site, image.buffer, image.fileName, image.mimeType, image.subjectDescription);
   }
 
   const post = await createPost(

@@ -20,8 +20,9 @@ Automated financial article generation and multi-site WordPress publishing pipel
 6. Select/edit featured image via OpenAI (90s timeout, 200s budget cap)
 7. Resize to 900x600 WebP (graceful degradation: publishes without image on failure)
 8. Generate per-site SEO (metatitle, metadescription) via OpenAI
-9. Publish as draft to each WordPress site (idempotency guard: skips if title exists)
-10. Save article record to `ai_articles` (idempotency: rss_feed_id + site_id check)
+9. Rewrite article body per site via Anthropic Claude Sonnet (fallback to original on failure)
+10. Publish as draft to each WordPress site with per-site image filenames and alt text (idempotency guard: skips if title exists)
+11. Save article record to `ai_articles` (idempotency: rss_feed_id + site_id check)
 
 ## Setup
 
@@ -69,4 +70,4 @@ Requires `ADMIN_PASSWORD` in `.env.local`; you will be prompted to sign in.
 npx vitest run
 ```
 
-17 tests across error categorization (8), retry utility (5), and WordPress publishing (4).
+28 tests across error categorization (8), retry utility (5), WordPress publishing (4), article rewrite validation (6), and per-site SEO routing (5).
