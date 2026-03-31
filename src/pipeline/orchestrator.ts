@@ -320,10 +320,12 @@ async function processOneArticle(
   const publishResults = await raceWithCancel(runId, () =>
     Promise.allSettled(
       siteArticles.map((siteArticle) => {
-        const siteImage = {
-          ...image,
-          fileName: image.fileName.replace('.webp', `-${siteArticle.site.slug}.webp`),
-        };
+        const siteImage = image
+          ? {
+              ...image,
+              fileName: image.fileName.replace(/\.webp$/, `-${siteArticle.site.slug}.webp`),
+            }
+          : null;
         return withRetry(`publish_${siteArticle.site.slug}`, () =>
           publishToWordPress(siteArticle, siteArticle.rewrittenHtml, siteImage), { maxAttempts: 2 }
         );
