@@ -29,6 +29,7 @@ const mockSiteArticle: SiteArticle = {
   keyword: "focus keyword",
   categoryId: 9,
   categoryColor: "#fff",
+  rewrittenHtml: "<p>hello</p>",
 };
 
 const mockImage: ProcessedImage = {
@@ -37,6 +38,7 @@ const mockImage: ProcessedImage = {
   fileName: "featured.webp",
   imageSource: "og:image",
   sourceImageUrl: "https://source.test/image.jpg",
+  subjectDescription: "A stock chart showing market trends",
 };
 
 describe("publishToWordPress", () => {

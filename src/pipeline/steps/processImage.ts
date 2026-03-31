@@ -21,6 +21,7 @@ export interface ProcessedImage {
   fileName: string;
   imageSource: "og:image" | "img_url" | "google_cse";
   sourceImageUrl: string;
+  subjectDescription: string;
 }
 
 async function downloadCandidateImages(
@@ -172,6 +173,7 @@ export async function processArticleImage(
     fileName,
     imageSource: imageSource as "og:image" | "img_url",
     sourceImageUrl,
+    subjectDescription: selection.subjectDescription,
   };
 }
 
@@ -248,7 +250,7 @@ async function fallbackToGoogleSearch(
   const { buffer: finalBuffer } = await resizeToWebp(editedBuffer);
   const fileName = `${slugify(article.headline)}-${Date.now()}.webp`;
 
-  return { buffer: finalBuffer, mimeType: "image/webp", fileName, imageSource: "google_cse" as const, sourceImageUrl: selectedUrl };
+  return { buffer: finalBuffer, mimeType: "image/webp", fileName, imageSource: "google_cse" as const, sourceImageUrl: selectedUrl, subjectDescription: selection.subjectDescription };
 }
 
 function buildImageEditPrompt(

@@ -286,7 +286,7 @@ async function processOneArticle(
   try {
     siteArticles = await raceWithCancel(runId, async () => {
       const sites = await getActiveSites();
-      return generateSeoPerSite(article, sites);
+      return generateSeoPerSite(article, sites, article.cleanedHtml);
     });
   } catch (err) {
     if (err instanceof CancelledError) throw err;
@@ -319,11 +319,15 @@ async function processOneArticle(
 
   const publishResults = await raceWithCancel(runId, () =>
     Promise.allSettled(
-      siteArticles.map((siteArticle) =>
-        withRetry(`publish_${siteArticle.site.slug}`, () =>
-          publishToWordPress(siteArticle, article.cleanedHtml, image), { maxAttempts: 2 }
-        )
-      )
+      siteArticles.map((siteArticle) => {
+        const siteImage = {
+          ...image,
+          fileName: image.fileName.replace('.webp', `-${siteArticle.site.slug}.webp`),
+        };
+        return withRetry(`publish_${siteArticle.site.slug}`, () =>
+          publishToWordPress(siteArticle, siteArticle.rewrittenHtml, siteImage), { maxAttempts: 2 }
+        );
+      })
     )
   );
 
@@ -340,7 +344,7 @@ async function processOneArticle(
       await saveAiArticle(
         rssItem.id,
         siteArticle.metatitle,
-        article.cleanedHtml,
+        siteArticle.rewrittenHtml,
         siteArticle.site.id,
         pubResult,
         image?.imageSource,
