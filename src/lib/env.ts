@@ -33,6 +33,7 @@ const envSchema = z.object({
     }, "WORDPRESS_SITES must be a valid JSON array of { slug, username, appPassword }"),
   PIPELINE_SECRET: z.string().min(1),
   CRON_SECRET: z.string().min(1),
+  CRON_MAX_ARTICLES: z.coerce.number().int().min(1).max(20).optional(),
   ADMIN_PASSWORD: z.string().min(12).optional(),
   GEMINI_API_KEY: z.string().min(1).optional(),
 });
