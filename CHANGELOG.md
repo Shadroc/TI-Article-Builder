@@ -2,6 +2,32 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.1.2.0] - 2026-04-03
+
+### Added
+- Deadline-based image processing with per-phase timing instrumentation (`deadline.ts`, `ImageTimingsMs`)
+- `CRON_MAX_ARTICLES` env var to cap cron batch size and prevent Vercel timeout failures
+- Yesterday fallback in `fetchAndExpandHeadlines` when StockNews returns zero items for today
+- Invalid JSON detection in StockNews response with structured error logging
+- AbortSignal propagation through image pipeline (scrape, download, CSE search, edit, selection)
+- WordPress `updatePost()` and `getPostById()` for idempotent post updates
+- Atomic upsert in `saveAiArticle` using unique index on (rss_feed_id, site_id)
+- Duplicate article deduplication via `pickCanonicalAiArticle` (prefers rows with wp_post_id)
+- Migration 010: unique index on ai_articles(rss_feed_id, site_id) with duplicate cleanup
+- Test suites for cron route, stocknews, fetchHeadlines, processImage, saveAiArticle
+
+### Changed
+- Cron route simplified: removed fragile `isPacificSixAm` time gate, single 13:00 UTC schedule
+- WordPress publish flow: update existing posts instead of skipping duplicates, reuse media on replacement posts
+- `saveAiArticle` preserves existing media references when new image upload returns null
+- Image processing errors now include timing breakdown for debugging slow phases
+- Structured logging replaces `console.error` in candidate image downloads
+
+### Fixed
+- Cron silently skipping when Vercel fires 1+ second late (60-second window was too narrow)
+- Race condition in saveAiArticle: concurrent runs could create duplicate rows
+- Failed image upload wiping previously successful media reference from ai_articles
+
 ## [0.1.1.0] - 2026-03-31
 
 ### Added

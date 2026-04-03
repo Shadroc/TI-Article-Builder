@@ -21,9 +21,24 @@ export async function fetchAndExpandHeadlines(
     requestedCount: count,
     date,
   });
-  const headlines = await fetchTrendingHeadlines(count, date);
+
+  let effectiveDate = date;
+  let headlines = await fetchTrendingHeadlines(count, effectiveDate);
+
+  if (headlines.length === 0 && date === "today") {
+    logger.warn("fetchAndExpandHeadlines: no headlines for today, retrying yesterday", {
+      requestedCount: count,
+      originalDate: date,
+      fallbackDate: "yesterday",
+    });
+    effectiveDate = "yesterday";
+    headlines = await fetchTrendingHeadlines(count, effectiveDate);
+  }
+
   logger.info("fetchAndExpandHeadlines: raw headlines received", {
     requestedCount: count,
+    requestedDate: date,
+    effectiveDate,
     receivedCount: headlines.length,
   });
   const expanded = await Promise.all(

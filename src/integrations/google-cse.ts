@@ -16,7 +16,11 @@ interface GoogleSearchResponse {
   error?: { message: string };
 }
 
-export async function searchImages(query: string, num = 5): Promise<GoogleImageResult[]> {
+export async function searchImages(
+  query: string,
+  num = 5,
+  signal?: AbortSignal
+): Promise<GoogleImageResult[]> {
   const params = new URLSearchParams({
     key: env().GOOGLE_CSE_API_KEY,
     cx: env().GOOGLE_CSE_CX,
@@ -28,7 +32,7 @@ export async function searchImages(query: string, num = 5): Promise<GoogleImageR
   });
 
   const res = await fetch(`https://www.googleapis.com/customsearch/v1?${params}`, {
-    signal: AbortSignal.timeout(30_000),
+    signal: signal ?? AbortSignal.timeout(30_000),
   });
 
   if (!res.ok) {

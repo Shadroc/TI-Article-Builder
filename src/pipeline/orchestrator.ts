@@ -5,11 +5,12 @@ import { generateArticle } from "./steps/generateArticle";
 import { processArticleImage } from "./steps/processImage";
 import { getActiveSites, generateSeoPerSite } from "./steps/perSiteSeoAndRouting";
 import { publishToWordPress } from "./steps/publishWordpress";
-import { saveAiArticle } from "./steps/saveAiArticle";
+import { listAiArticlesByFeedAndSites, saveAiArticle } from "./steps/saveAiArticle";
 import { withRetry } from "@/lib/retry";
 import { logger } from "@/lib/logger";
 import { categorizeError } from "@/lib/error-categories";
 import { ProcessedImage } from "./steps/processImage";
+import { createDeadline } from "@/lib/deadline";
 
 export class CancelledError extends Error {
   constructor() {
@@ -242,26 +243,36 @@ async function processOneArticle(
   // 200s image budget cap — dynamic: min(200, 800 - elapsed - 100)
   const elapsedSeconds = (Date.now() - articleStartMs) / 1000;
   const imageBudgetMs = Math.min(200_000, Math.max(30_000, (800 - elapsedSeconds - 100) * 1000));
+  const imageDeadline = createDeadline(imageBudgetMs, "Image processing deadline exceeded");
 
   let image: ProcessedImage | null = null;
   try {
     image = await raceWithCancel(runId, () =>
-      withRetry("process_image", (signal) =>
-        processArticleImage(rssItem, article, signal), { maxAttempts: 2, timeoutMs: imageBudgetMs }
+      withRetry("process_image", () =>
+        processArticleImage(rssItem, article, imageDeadline), { maxAttempts: 2, timeoutMs: imageBudgetMs }
       )
     );
   } catch (err) {
     if (err instanceof CancelledError) throw err;
     const msg = err instanceof Error ? err.message : String(err);
     const cat = categorizeError(err);
+    const timingsMs =
+      err && typeof err === "object" && "timingsMs" in err
+        ? (err as { timingsMs?: Record<string, unknown> }).timingsMs
+        : undefined;
     logger.warn("Image processing failed, continuing without image", {
-      runId, articleIndex, error: msg, category: cat.category,
+      runId, articleIndex, error: msg, category: cat.category, timingsMs,
     });
     await updateStep(imageStepId, {
       status: "completed",
       output_summary: `Image skipped: ${msg}`,
       finished_at: new Date().toISOString(),
-      step_metadata: { needs_image: true, error_category: cat.category },
+      step_metadata: {
+        needs_image: true,
+        error_category: cat.category,
+        timings_ms: timingsMs,
+        budget_ms: imageBudgetMs,
+      },
     });
   }
 
@@ -270,6 +281,12 @@ async function processOneArticle(
       status: "completed",
       output_summary: `Image: ${image.fileName}`,
       finished_at: new Date().toISOString(),
+      step_metadata: {
+        image_source: image.imageSource,
+        source_image_url: image.sourceImageUrl,
+        timings_ms: image.timingsMs,
+        budget_ms: imageBudgetMs,
+      },
     });
   }
 
@@ -316,10 +333,15 @@ async function processOneArticle(
       })
     )
   );
+  const existingArticlesBySite = await listAiArticlesByFeedAndSites(
+    rssItem.id,
+    siteArticles.map((siteArticle) => siteArticle.site.id)
+  );
 
   const publishResults = await raceWithCancel(runId, () =>
     Promise.allSettled(
       siteArticles.map((siteArticle) => {
+        const existingArticle = existingArticlesBySite[siteArticle.site.id] ?? null;
         const siteImage = image
           ? {
               ...image,
@@ -327,7 +349,7 @@ async function processOneArticle(
             }
           : null;
         return withRetry(`publish_${siteArticle.site.slug}`, () =>
-          publishToWordPress(siteArticle, siteArticle.rewrittenHtml, siteImage), { maxAttempts: 2 }
+          publishToWordPress(siteArticle, siteArticle.rewrittenHtml, siteImage, existingArticle), { maxAttempts: 2 }
         );
       })
     )

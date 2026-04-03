@@ -30,12 +30,27 @@ export async function fetchTrendingHeadlines(
     items: String(items),
   });
 
-  const res = await fetch(`https://stocknewsapi.com/api/v1/trending-headlines?${params}`, {
+  const requestUrl = `https://stocknewsapi.com/api/v1/trending-headlines?${params}`;
+  const res = await fetch(requestUrl, {
     signal: AbortSignal.timeout(30_000),
   });
 
   if (!res.ok) throw new Error(`StockNews trending failed: ${res.status}`);
-  const json: TrendingResponse = await res.json();
+  const bodyText = await res.text();
+
+  let json: TrendingResponse;
+  try {
+    json = JSON.parse(bodyText) as TrendingResponse;
+  } catch {
+    logger.error("StockNews trending returned invalid JSON", {
+      requested: items,
+      date,
+      status: res.status,
+      bodyPreview: bodyText.slice(0, 500),
+    });
+    throw new Error("StockNews trending returned invalid JSON");
+  }
+
   const data = json.data ?? [];
   logger.info("StockNews trending-headlines", {
     requested: items,
@@ -43,6 +58,22 @@ export async function fetchTrendingHeadlines(
     date,
     mismatch: data.length !== items,
   });
+
+  if (data.length === 0) {
+    logger.warn("StockNews trending-headlines returned zero items", {
+      requested: items,
+      date,
+      status: res.status,
+      responseKeys: Object.keys(json ?? {}),
+      request: {
+        pathname: "/api/v1/trending-headlines",
+        items,
+        date,
+      },
+      bodyPreview: bodyText.slice(0, 500),
+    });
+  }
+
   return data;
 }
 

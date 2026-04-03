@@ -12,25 +12,31 @@ function authHeader(username: string, appPassword: string): string {
   return "Basic " + Buffer.from(`${username}:${appPassword}`).toString("base64");
 }
 
-/** Check if a post with this exact title already exists (for idempotency). */
-export async function postExistsByTitle(
+export interface WordPressPostRef {
+  id: number;
+  link: string;
+}
+
+export async function getPostById(
   site: SiteRow,
-  title: string
-): Promise<{ id: number; link: string } | null> {
+  postId: number
+): Promise<WordPressPostRef | null> {
   const creds = getCreds(site.slug);
   const baseUrl = site.wp_base_url.replace(/\/$/, "");
-  const params = new URLSearchParams({ search: title, per_page: "5", status: "draft,publish", context: "edit" });
 
-  const res = await fetch(`${baseUrl}/wp-json/wp/v2/posts?${params}`, {
+  const res = await fetch(`${baseUrl}/wp-json/wp/v2/posts/${postId}?context=edit`, {
     headers: { Authorization: authHeader(creds.username, creds.appPassword) },
     signal: AbortSignal.timeout(15_000),
   });
 
-  if (!res.ok) return null; // Non-fatal — proceed with publish attempt
+  if (res.status === 404) return null;
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`WP get post failed (${site.slug}): ${res.status} – ${body}`);
+  }
 
-  const posts = (await res.json()) as { id: number; link: string; title: { raw: string; rendered: string } }[];
-  const match = posts.find((p) => (p.title.raw ?? p.title.rendered) === title);
-  return match ? { id: match.id, link: match.link } : null;
+  const json = (await res.json()) as WordPressPostRef;
+  return { id: json.id, link: json.link };
 }
 
 export async function uploadMedia(
@@ -108,6 +114,36 @@ export async function createPost(
   if (!res.ok) {
     const body = await res.text();
     throw new Error(`WP create post failed (${site.slug}): ${res.status} – ${body}`);
+  }
+
+  const json = await res.json();
+  return { id: json.id, link: json.link };
+}
+
+export async function updatePost(
+  site: SiteRow,
+  postId: number,
+  title: string,
+  content: string,
+  categoryId: number,
+  status: "draft" | "publish" = "draft"
+): Promise<WordPressPostRef> {
+  const creds = getCreds(site.slug);
+  const baseUrl = site.wp_base_url.replace(/\/$/, "");
+
+  const res = await fetch(`${baseUrl}/wp-json/wp/v2/posts/${postId}`, {
+    method: "POST",
+    headers: {
+      Authorization: authHeader(creds.username, creds.appPassword),
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ title, content, status, categories: [categoryId] }),
+    signal: AbortSignal.timeout(30_000),
+  });
+
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`WP update post failed (${site.slug}): ${res.status} – ${body}`);
   }
 
   const json = await res.json();
