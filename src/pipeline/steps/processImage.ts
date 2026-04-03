@@ -169,21 +169,22 @@ export async function processArticleImage(
       if (!rssItem.img_url) {
         logger.info("img_url: not present on rssItem, skipping to Google CSE");
       } else {
+        const imgUrl = rssItem.img_url;
         try {
           throwIfDeadlineExceeded(deadline, "Image processing deadline exceeded");
           const { buffer, mimeType } = await measureStep(
             timingsMs,
             "stocknewsImageDownload",
-            { imageUrl: rssItem.img_url, source: "img_url" },
+            { imageUrl: imgUrl, source: "img_url" },
             () => downloadImage(
-              rssItem.img_url,
+              imgUrl,
               withDeadlineSignal(deadline, 15_000, "StockNews image download timed out")
             )
           );
           sourceBuffer = buffer;
           sourceMimeType = mimeType;
           imageSource = "img_url";
-          sourceImageUrl = rssItem.img_url;
+          sourceImageUrl = imgUrl;
           logger.info("img_url: download succeeded", { img_url: rssItem.img_url, bytes: buffer.length });
         } catch (err) {
           if (err instanceof DeadlineExceededError) throw err;

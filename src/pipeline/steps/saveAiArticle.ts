@@ -62,7 +62,8 @@ export async function listAiArticlesByFeedAndSites(
   return Object.fromEntries(
     Array.from(grouped.entries()).map(([siteId, siteRows]) => [
       siteId,
-      pickCanonicalAiArticle(siteRows, { rssFeedId, siteId }),
+      // siteRows is guaranteed non-empty here (grouped only has keys with rows)
+      pickCanonicalAiArticle(siteRows, { rssFeedId, siteId })!,
     ])
   );
 }
