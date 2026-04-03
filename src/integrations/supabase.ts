@@ -37,11 +37,11 @@ export interface AiArticleRow {
   title: string;
   content: string;
   site_id: string;
-  wp_post_id?: number;
-  wp_media_id?: number;
-  wp_image_url?: string;
-  image_source?: string;
-  source_image_url?: string;
+  wp_post_id?: number | null;
+  wp_media_id?: number | null;
+  wp_image_url?: string | null;
+  image_source?: string | null;
+  source_image_url?: string | null;
   created_at?: string;
 }
 

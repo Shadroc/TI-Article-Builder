@@ -14,14 +14,17 @@ const BROWSER_HEADERS = {
   Pragma: "no-cache",
 };
 
-export async function scrapeArticleImage(articleUrl: string): Promise<string | null> {
+export async function scrapeArticleImage(articleUrl: string, signal?: AbortSignal): Promise<string | null> {
   let res: Response;
   try {
     res = await fetch(articleUrl, {
-      signal: AbortSignal.timeout(12_000),
+      signal: signal ?? AbortSignal.timeout(12_000),
       headers: BROWSER_HEADERS,
     });
-  } catch {
+  } catch (error) {
+    if (signal?.aborted) {
+      throw signal.reason ?? error;
+    }
     return null;
   }
 
@@ -57,7 +60,8 @@ export async function scrapeArticleImage(articleUrl: string): Promise<string | n
  */
 export async function downloadImageWithReferer(
   url: string,
-  referer?: string
+  referer?: string,
+  signal?: AbortSignal
 ): Promise<{ buffer: Buffer; mimeType: string }> {
   const headers: Record<string, string> = {
     "User-Agent": BROWSER_HEADERS["User-Agent"],
@@ -71,7 +75,7 @@ export async function downloadImageWithReferer(
     }
   }
   const res = await fetch(url, {
-    signal: AbortSignal.timeout(15_000),
+    signal: signal ?? AbortSignal.timeout(15_000),
     headers,
   });
   if (!res.ok) throw new Error(`Image download failed: ${res.status} – ${url}`);
@@ -93,8 +97,8 @@ export async function downloadImageWithReferer(
 }
 
 /** Generic image download — no Referer. Use downloadImageWithReferer for editorial og:images. */
-export async function downloadImage(url: string): Promise<{ buffer: Buffer; mimeType: string }> {
-  return downloadImageWithReferer(url);
+export async function downloadImage(url: string, signal?: AbortSignal): Promise<{ buffer: Buffer; mimeType: string }> {
+  return downloadImageWithReferer(url, undefined, signal);
 }
 
 export async function ensureSupportedForEdit(

@@ -4,6 +4,7 @@ import { env } from "@/lib/env";
 import type { EditorPrompts } from "@/integrations/supabase";
 import { formatPivotCatalogsForAI } from "@/lib/editor-config";
 import type { PivotCatalogs } from "@/integrations/supabase";
+import { DeadlineExceededError } from "@/lib/deadline";
 
 let _client: OpenAI | null = null;
 
@@ -34,7 +35,8 @@ export async function selectBestImage(
   category: string,
   brandHexColor?: string,
   prompts?: Pick<EditorPrompts, "image_selection_system" | "image_selection_user">,
-  pivotCatalogs?: PivotCatalogs | null
+  pivotCatalogs?: PivotCatalogs | null,
+  signal?: AbortSignal
 ): Promise<ImageSelectionResult> {
   const imageContent = await Promise.all(
     candidates.map(async (c) => {
@@ -84,7 +86,7 @@ Return ONLY a JSON object with these fields:
         },
       ],
     },
-    { signal: AbortSignal.timeout(120_000) }
+    { signal: signal ?? AbortSignal.timeout(120_000) }
   );
 
   const text = res.choices[0]?.message?.content ?? "{}";
@@ -112,7 +114,8 @@ const EDIT_EXT: Record<string, string> = {
 export async function editImage(
   imageBuffer: Buffer,
   prompt: string,
-  mimeType = "image/jpeg"
+  mimeType = "image/jpeg",
+  signal?: AbortSignal
 ): Promise<Buffer> {
   const normalizedMime = mimeType.toLowerCase().split(";")[0].trim();
   const ext = EDIT_EXT[normalizedMime] ?? "png";
@@ -126,8 +129,7 @@ export async function editImage(
   formData.append("n", "1");
   formData.append("size", "1536x1024");
 
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), IMAGE_EDIT_TIMEOUT_MS);
+  const combinedSignal = signal ?? AbortSignal.timeout(IMAGE_EDIT_TIMEOUT_MS);
 
   try {
     const res = await fetch("https://api.openai.com/v1/images/edits", {
@@ -136,7 +138,7 @@ export async function editImage(
         Authorization: `Bearer ${env().OPENAI_API_KEY}`,
       },
       body: formData,
-      signal: controller.signal,
+      signal: combinedSignal,
     });
 
     if (!res.ok) {
@@ -156,12 +158,13 @@ export async function editImage(
     if (!b64) throw new Error("OpenAI image edit returned no data");
     return Buffer.from(b64, "base64");
   } catch (err) {
-    if (controller.signal.aborted) {
+    if (combinedSignal.aborted) {
+      if (combinedSignal.reason instanceof DeadlineExceededError) {
+        throw combinedSignal.reason;
+      }
       throw new Error("Image edit timed out after 90s");
     }
     throw err;
-  } finally {
-    clearTimeout(timer);
   }
 }
 
