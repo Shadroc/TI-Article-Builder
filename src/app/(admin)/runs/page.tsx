@@ -28,15 +28,7 @@ async function loadDashboardData() {
   let steps: Record<string, unknown>[] = [];
 
   if (runs.length > 0) {
-    // Include steps from runs in the last 24h so logs persist over the day
-    const cutoff = new Date();
-    cutoff.setHours(cutoff.getHours() - 24);
-    const cutoffIso = cutoff.toISOString();
-    const recentRunIds = (runs as { id: string; started_at?: string }[])
-      .filter((r) => (r.started_at ?? "") >= cutoffIso)
-      .map((r) => r.id)
-      .slice(0, 10);
-    const runIds = recentRunIds.length > 0 ? recentRunIds : [runs[0].id as string];
+    const runIds = runs.map((run) => run.id as string);
 
     const { data } = await db
       .from("workflow_steps")

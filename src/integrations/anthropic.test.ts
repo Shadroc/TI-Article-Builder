@@ -14,7 +14,7 @@ vi.mock("@/lib/env", () => ({
   env: () => ({ ANTHROPIC_API_KEY: "test-key" }),
 }));
 
-import { rewriteArticleForSite } from "@/integrations/anthropic";
+import { rewriteArticleForSite, rewriteArticleForSiteWithUsage } from "@/integrations/anthropic";
 
 const INPUT_HTML = `<p>According to <a href="https://example.com">sources</a>, the market rose 5%.</p><p>More details <a href="https://other.com">here</a>.</p>`;
 
@@ -37,11 +37,30 @@ describe("rewriteArticleForSite", () => {
   it("throws when output is not valid HTML", async () => {
     mockCreate.mockResolvedValueOnce({
       content: [{ type: "text", text: "This is just plain text with no HTML tags at all." }],
+      model: "claude-sonnet-4-20250514",
+      usage: { input_tokens: 1000, output_tokens: 200 },
     });
 
     await expect(rewriteArticleForSite(INPUT_HTML, "TestSite")).rejects.toThrow(
       "Rewrite validation failed: output is not valid HTML"
     );
+  });
+
+  it("attaches cost metadata when validation fails after a billable rewrite", async () => {
+    mockCreate.mockResolvedValueOnce({
+      content: [{ type: "text", text: "This is just plain text with no HTML tags at all." }],
+      model: "claude-sonnet-4-20250514",
+      usage: { input_tokens: 1000, output_tokens: 200 },
+    });
+
+    await expect(rewriteArticleForSiteWithUsage(INPUT_HTML, "TestSite")).rejects.toMatchObject({
+      costs: [
+        expect.objectContaining({
+          estimated_cost_usd: 0.006,
+        }),
+      ],
+      estimatedCostUsd: 0.006,
+    });
   });
 
   it("throws when length ratio exceeds bounds", async () => {
@@ -83,6 +102,8 @@ describe("rewriteArticleForSite", () => {
   it("throws when Anthropic returns no text block", async () => {
     mockCreate.mockResolvedValueOnce({
       content: [],
+      model: "claude-sonnet-4-20250514",
+      usage: { input_tokens: 1000, output_tokens: 200 },
     });
 
     await expect(rewriteArticleForSite(INPUT_HTML, "TestSite")).rejects.toThrow(

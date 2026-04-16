@@ -120,7 +120,9 @@ describe("saveAiArticle", () => {
       }
     );
 
-    const upsertArg = table.upsert.mock.calls[0][0];
+    const firstUpsertCall = table.upsert.mock.calls.at(0) as unknown[] | undefined;
+    expect(firstUpsertCall).toBeDefined();
+    const upsertArg = firstUpsertCall?.[0] as unknown as Record<string, unknown>;
     // null media fields should be omitted so existing DB values are preserved
     expect(upsertArg).not.toHaveProperty("wp_media_id");
     expect(upsertArg).not.toHaveProperty("wp_image_url");
@@ -153,7 +155,9 @@ describe("saveAiArticle", () => {
 
     await saveAiArticle("feed-1", "Title", "<p>html</p>", "site-1");
 
-    const upsertArg = table.upsert.mock.calls[0][0];
+    const firstUpsertCall = table.upsert.mock.calls.at(0) as unknown[] | undefined;
+    expect(firstUpsertCall).toBeDefined();
+    const upsertArg = firstUpsertCall?.[0] as unknown as Record<string, unknown>;
     expect(upsertArg).not.toHaveProperty("wp_post_id");
     expect(upsertArg).not.toHaveProperty("wp_media_id");
     expect(upsertArg).not.toHaveProperty("wp_image_url");

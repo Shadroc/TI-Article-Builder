@@ -1,5 +1,7 @@
 "use client";
 
+import { extractFinishedAt, formatUsd, sumRunEstimatedCostUsd } from "./runMetrics";
+
 interface LastRunSummaryProps {
   run: Record<string, unknown> | null;
   steps: Record<string, unknown>[];
@@ -18,7 +20,7 @@ export default function LastRunSummary({ run, steps }: LastRunSummaryProps) {
 
   const status = run.status as string;
   const startedAt = run.started_at as string | null;
-  const endedAt = run.ended_at as string | null;
+  const endedAt = extractFinishedAt(run);
   const runSteps = steps.filter((s) => (s.run_id as string) === (run.id as string));
 
   // Derive stats
@@ -29,6 +31,8 @@ export default function LastRunSummary({ run, steps }: LastRunSummaryProps) {
     articleSteps.filter((s) => s.status === "failed").map((s) => s.article_index as number)
   ).size;
   const completedArticles = totalArticles - failedArticles;
+  const estimatedCostUsd = sumRunEstimatedCostUsd(runSteps);
+  const averageCostPerArticle = totalArticles > 0 ? estimatedCostUsd / totalArticles : 0;
 
   // Duration
   let durationStr = "—";
@@ -77,6 +81,8 @@ export default function LastRunSummary({ run, steps }: LastRunSummaryProps) {
         <div className="flex items-center gap-6">
           <Stat label="Duration" value={durationStr} />
           <Stat label="Articles" value={`${completedArticles}/${totalArticles}`} />
+          <Stat label="AI Cost" value={formatUsd(estimatedCostUsd)} />
+          {totalArticles > 0 && <Stat label="Per Article" value={formatUsd(averageCostPerArticle)} />}
           {failedArticles > 0 && <Stat label="Errors" value={String(failedArticles)} color="text-red-400" />}
         </div>
       </div>
