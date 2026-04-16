@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useState, useEffect, useRef } from "react";
 import RunSparkline from "./RunSparkline";
+import { extractFinishedAt } from "./runMetrics";
 
 interface DashboardHeaderProps {
   isRunning: boolean;
@@ -57,8 +58,8 @@ export default function DashboardHeader({ isRunning, onRun, onTest, onStop, runs
   const sparklineDots = runs.map((r) => ({
     id: r.id as string,
     status: r.status as string,
-    duration_seconds: r.started_at && r.ended_at
-      ? Math.round((new Date(r.ended_at as string).getTime() - new Date(r.started_at as string).getTime()) / 1000)
+    duration_seconds: r.started_at && extractFinishedAt(r)
+      ? Math.round((new Date(extractFinishedAt(r) as string).getTime() - new Date(r.started_at as string).getTime()) / 1000)
       : undefined,
   }));
 

@@ -18,8 +18,8 @@ vi.mock("@/integrations/google-cse", () => ({
 }));
 
 vi.mock("@/integrations/openai", () => ({
-  selectBestImage: vi.fn(),
-  editImage: vi.fn(),
+  selectBestImageWithUsage: vi.fn(),
+  editImageWithUsage: vi.fn(),
 }));
 
 import { processArticleImage } from "./processImage";
@@ -66,24 +66,30 @@ describe("processArticleImage", () => {
     vi.mocked(imageProcessing.downloadImage).mockRejectedValueOnce(new Error("img url failed"));
     vi.mocked(googleCse.searchImages).mockResolvedValueOnce([]);
 
-    const error = await processArticleImage(
-      {
-        id: "rss-1",
-        title: "Title",
-        link: "https://example.com/story",
-        pub_date: "2026-01-01",
-        content: "body",
-        img_url: "https://example.com/image.jpg",
-      },
-      {
-        headline: "Headline",
-        cleanedHtml: "<p>body</p>",
-        category: "Finance",
-        categoryId: 1,
-        categoryColor: "#fff",
-        tags: [],
-      }
-    ).catch((err) => err as Error & { timingsMs?: Record<string, unknown> });
+    let error: Error & { timingsMs?: Record<string, unknown> };
+    try {
+      await processArticleImage(
+        {
+          id: "rss-1",
+          title: "Title",
+          link: "https://example.com/story",
+          pub_date: "2026-01-01",
+          content: "body",
+          img_url: "https://example.com/image.jpg",
+        },
+        {
+          headline: "Headline",
+          cleanedHtml: "<p>body</p>",
+          category: "Finance",
+          categoryId: 1,
+          categoryColor: "#fff",
+          tags: [],
+        }
+      );
+      throw new Error("Expected processArticleImage to fail");
+    } catch (err) {
+      error = err as Error & { timingsMs?: Record<string, unknown> };
+    }
 
     expect(error.message).toContain("No images found from Google CSE");
     expect(error.timingsMs).toMatchObject({

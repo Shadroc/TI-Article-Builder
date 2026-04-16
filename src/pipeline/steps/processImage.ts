@@ -1,5 +1,5 @@
 import { searchImages, GoogleImageResult } from "@/integrations/google-cse";
-import { selectBestImage, editImage } from "@/integrations/openai";
+import { selectBestImageWithUsage, editImageWithUsage } from "@/integrations/openai";
 import {
   downloadImage,
   downloadImageWithReferer,
@@ -15,6 +15,8 @@ import { DEFAULT_PIVOT_CATALOGS } from "@/lib/default-pivot-catalogs";
 import { N8N_EDIT_DIRECT_TEMPLATE } from "@/lib/default-editor-prompts";
 import { logger } from "@/lib/logger";
 import { Deadline, DeadlineExceededError, throwIfDeadlineExceeded, withDeadlineSignal } from "@/lib/deadline";
+import type { CostEstimate } from "@/lib/costs";
+import { sumEstimatedCostUsd } from "@/lib/costs";
 
 export interface ImageTimingsMs {
   total?: number;
@@ -38,16 +40,31 @@ export interface ProcessedImage {
   sourceImageUrl: string;
   subjectDescription: string;
   timingsMs: ImageTimingsMs;
+  costs: CostEstimate[];
+  estimatedCostUsd: number;
 }
 
-type ImageErrorWithTimings = Error & { timingsMs?: ImageTimingsMs };
+type ImageErrorWithDiagnostics = Error & {
+  timingsMs?: ImageTimingsMs;
+  costs?: CostEstimate[];
+  estimatedCostUsd?: number;
+};
 
-function attachTimings(error: unknown, timingsMs: ImageTimingsMs, processStartedAt: number): never {
-  const enriched = (error instanceof Error ? error : new Error(String(error))) as ImageErrorWithTimings;
+function attachDiagnostics(
+  error: unknown,
+  timingsMs: ImageTimingsMs,
+  costs: CostEstimate[],
+  processStartedAt: number
+): never {
+  const enriched = (error instanceof Error ? error : new Error(String(error))) as ImageErrorWithDiagnostics;
   enriched.timingsMs = {
     ...timingsMs,
     total: timingsMs.total ?? Date.now() - processStartedAt,
   };
+  if (costs.length > 0) {
+    enriched.costs = costs;
+    enriched.estimatedCostUsd = sumEstimatedCostUsd(costs);
+  }
   throw enriched;
 }
 
@@ -106,6 +123,7 @@ export async function processArticleImage(
 ): Promise<ProcessedImage> {
   const processStartedAt = Date.now();
   const timingsMs: ImageTimingsMs = {};
+  const costs: CostEstimate[] = [];
   try {
     const { editor_prompts: prompts, pivot_catalogs } = await getEditorConfig();
     const catalogs = pivot_catalogs ?? DEFAULT_PIVOT_CATALOGS;
@@ -203,11 +221,11 @@ export async function processArticleImage(
     }
 
   throwIfDeadlineExceeded(deadline, "Image processing deadline exceeded");
-  const sel = await measureStep(
+  const selectionResult = await measureStep(
     timingsMs,
     "imageSelection",
     { imageSource, candidateCount: 1 },
-    () => selectBestImage(
+    () => selectBestImageWithUsage(
       [{ buffer: sourceBuffer, mimeType: sourceMimeType }],
       article.headline,
       article.category,
@@ -217,11 +235,12 @@ export async function processArticleImage(
       withDeadlineSignal(deadline, 120_000, "Image selection timed out")
     )
   );
+  if (selectionResult.cost) costs.push(selectionResult.cost);
 
   const selection = {
-    subjectDescription: sel.subjectDescription,
-    colorTarget: sel.colorTarget,
-    reason: sel.reason,
+    subjectDescription: selectionResult.data.subjectDescription,
+    colorTarget: selectionResult.data.colorTarget,
+    reason: selectionResult.data.reason,
   };
 
   const editPrompt = await measureStep(
@@ -269,22 +288,23 @@ export async function processArticleImage(
   });
 
   throwIfDeadlineExceeded(deadline, "Image processing deadline exceeded");
-  const editedBuffer = await measureStep(
+  const imageEditResult = await measureStep(
     timingsMs,
     "imageEdit",
     { imageSource },
-    () => editImage(
+    () => editImageWithUsage(
       editInputBuffer,
       editPrompt,
       editInputMime,
       withDeadlineSignal(deadline, 90_000, "Image edit timed out")
     )
   );
+  if (imageEditResult.cost) costs.push(imageEditResult.cost);
   const { buffer: finalBuffer } = await measureStep(
     timingsMs,
     "resizeToWebp",
     { imageSource },
-    () => resizeToWebp(editedBuffer)
+    () => resizeToWebp(imageEditResult.buffer)
   );
   const fileName = `${slugify(article.headline)}-${Date.now()}.webp`;
   timingsMs.total = Date.now() - processStartedAt;
@@ -303,9 +323,11 @@ export async function processArticleImage(
       sourceImageUrl,
       subjectDescription: selection.subjectDescription,
       timingsMs,
+      costs,
+      estimatedCostUsd: sumEstimatedCostUsd(costs),
     };
   } catch (error) {
-    attachTimings(error, timingsMs, processStartedAt);
+    attachDiagnostics(error, timingsMs, costs, processStartedAt);
   }
 }
 
@@ -318,135 +340,141 @@ async function fallbackToGoogleSearch(
   timingsMs: ImageTimingsMs = {},
   processStartedAt = Date.now()
 ): Promise<ProcessedImage> {
+  const costs: CostEstimate[] = [];
   try {
+    throwIfDeadlineExceeded(deadline, "Image processing deadline exceeded");
+    const imageResults = await measureStep(
+      timingsMs,
+      "googleCseSearch",
+      { query: rssItem.title },
+      () => searchImages(
+        rssItem.title,
+        5,
+        withDeadlineSignal(deadline, 30_000, "Google CSE search timed out")
+      )
+    );
+    if (imageResults.length === 0) {
+      throw new Error("No images found from Google CSE");
+    }
 
-  throwIfDeadlineExceeded(deadline, "Image processing deadline exceeded");
-  const imageResults = await measureStep(
-    timingsMs,
-    "googleCseSearch",
-    { query: rssItem.title },
-    () => searchImages(
-      rssItem.title,
-      5,
-      withDeadlineSignal(deadline, 30_000, "Google CSE search timed out")
-    )
-  );
-  if (imageResults.length === 0) {
-    throw new Error("No images found from Google CSE");
-  }
+    const candidates = await downloadCandidateImages(imageResults, 5, deadline, timingsMs);
+    if (candidates.length === 0) {
+      throw new Error("Failed to download any candidate images");
+    }
 
-  const candidates = await downloadCandidateImages(imageResults, 5, deadline, timingsMs);
-  if (candidates.length === 0) {
-    throw new Error("Failed to download any candidate images");
-  }
+    throwIfDeadlineExceeded(deadline, "Image processing deadline exceeded");
+    const selectionResult = await measureStep(
+      timingsMs,
+      "imageSelection",
+      { imageSource: "google_cse", candidateCount: candidates.length },
+      () => selectBestImageWithUsage(
+        candidates.map((c) => ({ buffer: c.buffer, mimeType: c.mimeType })),
+        article.headline,
+        article.category,
+        article.categoryColor,
+        prompts ?? undefined,
+        catalogs,
+        withDeadlineSignal(deadline, 120_000, "Image selection timed out")
+      )
+    );
+    if (selectionResult.cost) costs.push(selectionResult.cost);
 
-  throwIfDeadlineExceeded(deadline, "Image processing deadline exceeded");
-  const selection = await measureStep(
-    timingsMs,
-    "imageSelection",
-    { imageSource: "google_cse", candidateCount: candidates.length },
-    () => selectBestImage(
-      candidates.map((c) => ({ buffer: c.buffer, mimeType: c.mimeType })),
-      article.headline,
-      article.category,
-      article.categoryColor,
-      prompts ?? undefined,
-      catalogs,
-      withDeadlineSignal(deadline, 120_000, "Image selection timed out")
-    )
-  );
+    const selection = {
+      subjectDescription: selectionResult.data.subjectDescription,
+      colorTarget: selectionResult.data.colorTarget,
+      reason: selectionResult.data.reason,
+    };
 
-  const selectedIdx = Math.min(selection.selectedIndex, candidates.length - 1);
-  const selectedCandidate = candidates[selectedIdx];
-  const selectedBuffer = selectedCandidate.buffer;
-  const selectedMimeType = selectedCandidate.mimeType;
-  const selectedUrl = selectedCandidate.url;
+    const selectedIdx = Math.min(selectionResult.data.selectedIndex, candidates.length - 1);
+    const selectedCandidate = candidates[selectedIdx];
+    const selectedBuffer = selectedCandidate.buffer;
+    const selectedMimeType = selectedCandidate.mimeType;
+    const selectedUrl = selectedCandidate.url;
 
-  const editPrompt = await measureStep(
-    timingsMs,
-    "buildEditPrompt",
-    { imageSource: "google_cse" },
-    () => buildImageEditPrompt(
-      {
-        subjectDescription: selection.subjectDescription,
-        colorTarget: selection.colorTarget,
-        reason: selection.reason,
-      },
-      article.categoryColor,
-      article.headline,
-      prompts ?? undefined,
-      catalogs
-    )
-  );
+    const editPrompt = await measureStep(
+      timingsMs,
+      "buildEditPrompt",
+      { imageSource: "google_cse" },
+      () => buildImageEditPrompt(
+        selection,
+        article.categoryColor,
+        article.headline,
+        prompts ?? undefined,
+        catalogs
+      )
+    );
 
-  logger.info("IMAGE DEBUG", {
-    subjectDescription: selection.subjectDescription,
-    colorTarget: selection.colorTarget,
-    hexColor: article.categoryColor,
-    headline: article.headline,
-    bufferSize: selectedBuffer.length,
-    promptPreview: editPrompt.substring(0, 300),
-  });
+    logger.info("IMAGE DEBUG", {
+      subjectDescription: selection.subjectDescription,
+      colorTarget: selection.colorTarget,
+      hexColor: article.categoryColor,
+      headline: article.headline,
+      bufferSize: selectedBuffer.length,
+      promptPreview: editPrompt.substring(0, 300),
+    });
 
-  const { buffer: editInputBuffer, mimeType: editInputMime } = await measureStep(
-    timingsMs,
-    "ensureSupportedForEdit",
-    { imageSource: "google_cse" },
-    () => ensureSupportedForEdit(
-      selectedBuffer,
-      selectedMimeType
-    )
-  );
+    const { buffer: editInputBuffer, mimeType: editInputMime } = await measureStep(
+      timingsMs,
+      "ensureSupportedForEdit",
+      { imageSource: "google_cse" },
+      () => ensureSupportedForEdit(
+        selectedBuffer,
+        selectedMimeType
+      )
+    );
 
-  const meta = await import("sharp").then((s) => s.default(editInputBuffer).metadata());
-  logger.info("IMAGE EDIT INPUT", {
-    originalMime: selectedMimeType,
-    convertedMime: editInputMime,
-    originalBytes: selectedBuffer.length,
-    convertedBytes: editInputBuffer.length,
-    width: meta.width,
-    height: meta.height,
-    format: meta.format,
-  });
+    const meta = await import("sharp").then((s) => s.default(editInputBuffer).metadata());
+    logger.info("IMAGE EDIT INPUT", {
+      originalMime: selectedMimeType,
+      convertedMime: editInputMime,
+      originalBytes: selectedBuffer.length,
+      convertedBytes: editInputBuffer.length,
+      width: meta.width,
+      height: meta.height,
+      format: meta.format,
+    });
 
-  throwIfDeadlineExceeded(deadline, "Image processing deadline exceeded");
-  const editedBuffer = await measureStep(
-    timingsMs,
-    "imageEdit",
-    { imageSource: "google_cse" },
-    () => editImage(
-      editInputBuffer,
-      editPrompt,
-      editInputMime,
-      withDeadlineSignal(deadline, 90_000, "Image edit timed out")
-    )
-  );
-  const { buffer: finalBuffer } = await measureStep(
-    timingsMs,
-    "resizeToWebp",
-    { imageSource: "google_cse" },
-    () => resizeToWebp(editedBuffer)
-  );
-  const fileName = `${slugify(article.headline)}-${Date.now()}.webp`;
-  timingsMs.total = Date.now() - processStartedAt;
-  logger.info("Image timing summary", {
-    step: "process_image",
-    imageSource: "google_cse",
-    timingsMs,
-    totalDurationMs: timingsMs.total,
-  });
+    throwIfDeadlineExceeded(deadline, "Image processing deadline exceeded");
+    const imageEditResult = await measureStep(
+      timingsMs,
+      "imageEdit",
+      { imageSource: "google_cse" },
+      () => editImageWithUsage(
+        editInputBuffer,
+        editPrompt,
+        editInputMime,
+        withDeadlineSignal(deadline, 90_000, "Image edit timed out")
+      )
+    );
+    if (imageEditResult.cost) costs.push(imageEditResult.cost);
+    const { buffer: finalBuffer } = await measureStep(
+      timingsMs,
+      "resizeToWebp",
+      { imageSource: "google_cse" },
+      () => resizeToWebp(imageEditResult.buffer)
+    );
+    const fileName = `${slugify(article.headline)}-${Date.now()}.webp`;
+    timingsMs.total = Date.now() - processStartedAt;
+    logger.info("Image timing summary", {
+      step: "process_image",
+      imageSource: "google_cse",
+      timingsMs,
+      totalDurationMs: timingsMs.total,
+    });
 
-  return {
-    buffer: finalBuffer,
-    mimeType: "image/webp",
-    fileName,
-    imageSource: "google_cse" as const,
-    sourceImageUrl: selectedUrl,
-    subjectDescription: selection.subjectDescription,
-    timingsMs,
-  };
+    return {
+      buffer: finalBuffer,
+      mimeType: "image/webp",
+      fileName,
+      imageSource: "google_cse" as const,
+      sourceImageUrl: selectedUrl,
+      subjectDescription: selection.subjectDescription,
+      timingsMs,
+      costs,
+      estimatedCostUsd: sumEstimatedCostUsd(costs),
+    };
   } catch (error) {
-    attachTimings(error, timingsMs, processStartedAt);
+    attachDiagnostics(error, timingsMs, costs, processStartedAt);
   }
 }
 

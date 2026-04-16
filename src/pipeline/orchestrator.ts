@@ -11,6 +11,8 @@ import { logger } from "@/lib/logger";
 import { categorizeError } from "@/lib/error-categories";
 import { ProcessedImage } from "./steps/processImage";
 import { createDeadline } from "@/lib/deadline";
+import type { CostEstimate } from "@/lib/costs";
+import { sumEstimatedCostUsd } from "@/lib/costs";
 
 export class CancelledError extends Error {
   constructor() {
@@ -98,6 +100,46 @@ async function updateStep(
 ): Promise<void> {
   if (!stepId) return;
   await supabase().from("workflow_steps").update(update).eq("id", stepId);
+}
+
+function extractKnownCosts(error: unknown): CostEstimate[] {
+  if (!error || typeof error !== "object" || !("costs" in error)) return [];
+  const costs = (error as { costs?: unknown }).costs;
+  return Array.isArray(costs) ? (costs as CostEstimate[]) : [];
+}
+
+function extractKnownEstimatedCost(error: unknown, costs: CostEstimate[]): number {
+  const accumulatedCostUsd = sumEstimatedCostUsd(costs);
+  if (accumulatedCostUsd > 0) {
+    return accumulatedCostUsd;
+  }
+
+  if (
+    error &&
+    typeof error === "object" &&
+    "estimatedCostUsd" in error &&
+    typeof (error as { estimatedCostUsd?: unknown }).estimatedCostUsd === "number"
+  ) {
+    return (error as { estimatedCostUsd: number }).estimatedCostUsd;
+  }
+
+  return accumulatedCostUsd;
+}
+
+function extractKnownTimings(error: unknown): Record<string, unknown> | undefined {
+  if (!error || typeof error !== "object" || !("timingsMs" in error)) return undefined;
+  const timingsMs = (error as { timingsMs?: unknown }).timingsMs;
+  return timingsMs && typeof timingsMs === "object"
+    ? (timingsMs as Record<string, unknown>)
+    : undefined;
+}
+
+function extractKnownCostsBySite(error: unknown): Record<string, unknown>[] | undefined {
+  if (!error || typeof error !== "object" || !("costsBySite" in error)) return undefined;
+  const costsBySite = (error as { costsBySite?: unknown }).costsBySite;
+  return Array.isArray(costsBySite)
+    ? (costsBySite as Record<string, unknown>[])
+    : undefined;
 }
 
 export async function runPipeline(options: PipelineOptions): Promise<{
@@ -222,13 +264,42 @@ async function processOneArticle(
     status: "running",
   });
 
-  const article = await raceWithCancel(runId, () =>
-    withRetry("generate_article", () => generateArticle(rssItem))
-  );
+  const failedArticleAttemptCosts: CostEstimate[] = [];
+  let article: Awaited<ReturnType<typeof generateArticle>>;
+  try {
+    article = await raceWithCancel(runId, () =>
+      withRetry("generate_article", async () => {
+        try {
+          return await generateArticle(rssItem);
+        } catch (err) {
+          failedArticleAttemptCosts.push(...extractKnownCosts(err));
+          throw err;
+        }
+      })
+    );
+  } catch (err) {
+    if (err instanceof CancelledError) throw err;
+    const msg = err instanceof Error ? err.message : String(err);
+    await updateStep(articleStepId, {
+      status: "failed",
+      error: msg,
+      finished_at: new Date().toISOString(),
+      step_metadata: {
+        estimated_cost_usd: sumEstimatedCostUsd(failedArticleAttemptCosts),
+        costs: failedArticleAttemptCosts,
+      },
+    });
+    throw err;
+  }
+  const articleCosts = [...failedArticleAttemptCosts, ...(article.costs ?? [])];
   await updateStep(articleStepId, {
     status: "completed",
     output_summary: `Category: ${article.category}, headline: ${article.headline}`,
     finished_at: new Date().toISOString(),
+    step_metadata: {
+      estimated_cost_usd: sumEstimatedCostUsd(articleCosts),
+      costs: articleCosts,
+    },
   });
 
   await checkpoint(runId);
@@ -246,22 +317,28 @@ async function processOneArticle(
   const imageDeadline = createDeadline(imageBudgetMs, "Image processing deadline exceeded");
 
   let image: ProcessedImage | null = null;
+  const failedImageAttemptCosts: CostEstimate[] = [];
   try {
     image = await raceWithCancel(runId, () =>
-      withRetry("process_image", () =>
-        processArticleImage(rssItem, article, imageDeadline), { maxAttempts: 2, timeoutMs: imageBudgetMs }
+      withRetry("process_image", async () => {
+        try {
+          return await processArticleImage(rssItem, article, imageDeadline);
+        } catch (err) {
+          failedImageAttemptCosts.push(...extractKnownCosts(err));
+          throw err;
+        }
+      }, { maxAttempts: 2, timeoutMs: imageBudgetMs }
       )
     );
   } catch (err) {
     if (err instanceof CancelledError) throw err;
     const msg = err instanceof Error ? err.message : String(err);
     const cat = categorizeError(err);
-    const timingsMs =
-      err && typeof err === "object" && "timingsMs" in err
-        ? (err as { timingsMs?: Record<string, unknown> }).timingsMs
-        : undefined;
+    const timingsMs = extractKnownTimings(err);
+    const costs = failedImageAttemptCosts;
+    const estimatedCostUsd = extractKnownEstimatedCost(err, costs);
     logger.warn("Image processing failed, continuing without image", {
-      runId, articleIndex, error: msg, category: cat.category, timingsMs,
+      runId, articleIndex, error: msg, category: cat.category, timingsMs, estimatedCostUsd,
     });
     await updateStep(imageStepId, {
       status: "completed",
@@ -272,11 +349,14 @@ async function processOneArticle(
         error_category: cat.category,
         timings_ms: timingsMs,
         budget_ms: imageBudgetMs,
+        estimated_cost_usd: estimatedCostUsd,
+        costs: costs ?? [],
       },
     });
   }
 
   if (image) {
+    const imageCosts = [...failedImageAttemptCosts, ...image.costs];
     await updateStep(imageStepId, {
       status: "completed",
       output_summary: `Image: ${image.fileName}`,
@@ -286,6 +366,8 @@ async function processOneArticle(
         source_image_url: image.sourceImageUrl,
         timings_ms: image.timingsMs,
         budget_ms: imageBudgetMs,
+        estimated_cost_usd: sumEstimatedCostUsd(imageCosts),
+        costs: imageCosts,
       },
     });
   }
@@ -299,32 +381,44 @@ async function processOneArticle(
     status: "running",
   });
 
-  let siteArticles: Awaited<ReturnType<typeof generateSeoPerSite>>;
+  let seoResult: Awaited<ReturnType<typeof generateSeoPerSite>>;
   try {
-    siteArticles = await raceWithCancel(runId, async () => {
+    seoResult = await raceWithCancel(runId, async () => {
       const sites = await getActiveSites();
       return generateSeoPerSite(article, sites, article.cleanedHtml);
     });
   } catch (err) {
     if (err instanceof CancelledError) throw err;
     const msg = err instanceof Error ? err.message : String(err);
+    const partialCosts = extractKnownCosts(err);
+    const partialCostsBySite = extractKnownCostsBySite(err);
     await updateStep(seoStepId, {
       status: "failed",
       error: msg,
       finished_at: new Date().toISOString(),
+      step_metadata: {
+        estimated_cost_usd: extractKnownEstimatedCost(err, partialCosts),
+        costs: partialCosts,
+        costs_by_site: partialCostsBySite ?? [],
+      },
     });
     throw err;
   }
   await updateStep(seoStepId, {
     status: "completed",
-    output_summary: `Generated SEO for ${siteArticles.length} sites`,
+    output_summary: `Generated SEO for ${seoResult.siteArticles.length} sites`,
     finished_at: new Date().toISOString(),
+    step_metadata: {
+      site_count: seoResult.siteArticles.length,
+      estimated_cost_usd: seoResult.estimatedCostUsd,
+      costs_by_site: seoResult.costsBySite,
+    },
   });
 
   await checkpoint(runId);
 
   const publishStepIds = await Promise.all(
-    siteArticles.map((sa) =>
+    seoResult.siteArticles.map((sa) =>
       logStep({
         run_id: runId,
         article_index: articleIndex,
@@ -335,12 +429,12 @@ async function processOneArticle(
   );
   const existingArticlesBySite = await listAiArticlesByFeedAndSites(
     rssItem.id,
-    siteArticles.map((siteArticle) => siteArticle.site.id)
+    seoResult.siteArticles.map((siteArticle) => siteArticle.site.id)
   );
 
   const publishResults = await raceWithCancel(runId, () =>
     Promise.allSettled(
-      siteArticles.map((siteArticle) => {
+      seoResult.siteArticles.map((siteArticle) => {
         const existingArticle = existingArticlesBySite[siteArticle.site.id] ?? null;
         const siteImage = image
           ? {
@@ -358,9 +452,9 @@ async function processOneArticle(
   let firstError: Error | null = null;
   const now = new Date().toISOString();
 
-  for (let i = 0; i < siteArticles.length; i++) {
+  for (let i = 0; i < seoResult.siteArticles.length; i++) {
     const result = publishResults[i];
-    const siteArticle = siteArticles[i];
+    const siteArticle = seoResult.siteArticles[i];
     const stepId = publishStepIds[i];
 
     if (result.status === "fulfilled") {

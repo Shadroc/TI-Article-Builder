@@ -2,6 +2,29 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.1.3.0] - 2026-04-15
+
+### Added
+- Provider cost estimation utilities for Anthropic text, OpenAI chat, and OpenAI image usage in `src/lib/costs.ts`
+- Usage-aware OpenAI and Anthropic wrappers that return token snapshots and estimated USD for article generation, SEO generation, image selection, image editing, and per-site rewrites
+- Runs dashboard AI cost visibility: last-run summary, run history totals, per-article averages, cost trend chart, and run-detail step cost display
+- Regression test coverage for provider cost accounting, retry aggregation, per-site failure accounting, and run timestamp compatibility
+- Solution doc capturing the cost-observability pattern in `docs/solutions/best-practices/ai-run-cost-observability-2026-04-15.md`
+- Open ideation artifact in `docs/ideation/2026-04-13-open-ideation.md`
+
+### Changed
+- `generate_article`, `process_image`, and `seo_per_site` now persist estimated AI cost into `workflow_steps.step_metadata`
+- Dashboard data loading now pulls step metadata for all visible runs so history totals and trends stay accurate across the idle view
+- Run timing helpers now normalize `finished_at` and legacy `ended_at` timestamps through shared `runMetrics` helpers
+- `process_image` and `seo_per_site` aggregate retry and partial-failure spend instead of only the final happy-path provider response
+
+### Fixed
+- OpenAI snapshot model IDs like `gpt-4o-2024-08-06` no longer miss pricing lookup
+- Billable provider responses that fail local JSON or validation checks now still contribute to reported cost
+- Failed image retries now sum all consumed spend instead of reporting only the last failed attempt
+- Partial per-site SEO failures now include rejected-site cost metadata in `costs_by_site`
+- Run detail duration display now works for older rows that only have `ended_at`
+
 ## [0.1.2.0] - 2026-04-03
 
 ### Added

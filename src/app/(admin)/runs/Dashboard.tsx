@@ -12,6 +12,7 @@ import ArticlePreviewTab from "./ArticlePreviewTab";
 import SettingsPanel from "./SettingsPanel";
 import { triggerPipelineRun, triggerTestRun, stopPipelineRun, fetchDashboardData } from "./actions";
 import { PipelineConfig } from "@/integrations/supabase";
+import { extractFinishedAt } from "./runMetrics";
 
 type Tab = "dashboard" | "articles" | "settings";
 
@@ -94,7 +95,7 @@ function stepsToLogs(steps: Record<string, unknown>[]): LogEntry[] {
 
     // Calculate step duration (ms → seconds, 1 decimal)
     const startedAt = step.started_at as string | null;
-    const endedAt = step.ended_at as string | null;
+    const endedAt = extractFinishedAt(step);
     let durationSeconds: number | undefined;
     if (startedAt && endedAt) {
       durationSeconds = Math.round((new Date(endedAt).getTime() - new Date(startedAt).getTime()) / 100) / 10;

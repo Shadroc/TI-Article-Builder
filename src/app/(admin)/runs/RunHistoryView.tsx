@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { extractFinishedAt, formatUsd, sumRunEstimatedCostUsd } from "./runMetrics";
 
 interface RunHistoryViewProps {
   runs: Record<string, unknown>[];
@@ -21,8 +22,10 @@ export default function RunHistoryView({ runs, allSteps }: RunHistoryViewProps) 
 
   return (
     <div className="flex flex-col gap-6 p-6">
-      {/* Duration trend */}
-      <DurationTrend runs={runs} />
+      <div className="grid gap-6 lg:grid-cols-2">
+        <DurationTrend runs={runs} />
+        <CostTrend runs={runs} allSteps={allSteps} />
+      </div>
 
       {/* Run list */}
       <div>
@@ -32,7 +35,7 @@ export default function RunHistoryView({ runs, allSteps }: RunHistoryViewProps) 
             const runId = run.id as string;
             const status = run.status as string;
             const startedAt = run.started_at as string | null;
-            const endedAt = run.ended_at as string | null;
+            const endedAt = extractFinishedAt(run);
             const isExpanded = expandedRunId === runId;
 
             const runSteps = allSteps.filter((s) => (s.run_id as string) === runId);
@@ -42,6 +45,8 @@ export default function RunHistoryView({ runs, allSteps }: RunHistoryViewProps) 
             const errorCount = new Set(
               runSteps.filter((s) => s.status === "failed").map((s) => s.article_index)
             ).size;
+            const estimatedCostUsd = sumRunEstimatedCostUsd(runSteps);
+            const averageCostPerArticle = articleCount > 0 ? estimatedCostUsd / articleCount : 0;
 
             let durationStr = "—";
             let durationSeconds = 0;
@@ -85,6 +90,14 @@ export default function RunHistoryView({ runs, allSteps }: RunHistoryViewProps) 
                   <span className="font-mono text-[10px] text-[#6b6d7a]">
                     {articleCount} article{articleCount !== 1 ? "s" : ""}
                   </span>
+                  <span className="font-mono text-[10px] text-blue-300">
+                    {formatUsd(estimatedCostUsd)}
+                  </span>
+                  {articleCount > 0 && (
+                    <span className="font-mono text-[10px] text-[#6b6d7a]">
+                      {formatUsd(averageCostPerArticle)}/article
+                    </span>
+                  )}
                   {errorCount > 0 && (
                     <span className="font-mono text-[10px] text-red-400">{errorCount} error{errorCount !== 1 ? "s" : ""}</span>
                   )}
@@ -112,7 +125,7 @@ function DurationTrend({ runs }: { runs: Record<string, unknown>[] }) {
     .reverse()
     .map((run) => {
       const started = run.started_at as string | null;
-      const ended = run.ended_at as string | null;
+      const ended = extractFinishedAt(run);
       const status = run.status as string;
       let seconds = 0;
       if (started && ended) {
@@ -158,6 +171,65 @@ function DurationTrend({ runs }: { runs: Record<string, unknown>[] }) {
   );
 }
 
+function CostTrend({
+  runs,
+  allSteps,
+}: {
+  runs: Record<string, unknown>[];
+  allSteps: Record<string, unknown>[];
+}) {
+  const data = runs
+    .slice(0, 20)
+    .reverse()
+    .map((run) => {
+      const runId = run.id as string;
+      const status = run.status as string;
+      const runSteps = allSteps.filter((step) => (step.run_id as string) === runId);
+      return {
+        usd: sumRunEstimatedCostUsd(runSteps),
+        status,
+      };
+    });
+
+  if (data.length < 2) return null;
+
+  const maxUsd = Math.max(...data.map((d) => d.usd), 0.001);
+
+  return (
+    <div>
+      <h3 className="mb-3 font-mono text-[10px] uppercase tracking-wider text-[#3b3d4a]">AI Cost Trend</h3>
+      <div className="rounded-lg border border-[#1a1b22] bg-[#0d0e13] px-4 py-3">
+        <div className="flex items-end gap-1" style={{ height: 64 }}>
+          {data.map((d, i) => {
+            const height = Math.max(2, (d.usd / maxUsd) * 56);
+            const color =
+              d.status === "completed"
+                ? "bg-blue-500/70"
+                : d.status === "failed"
+                ? "bg-red-500/70"
+                : "bg-sky-400/70";
+
+            return (
+              <div
+                key={i}
+                className={`flex-1 rounded-t ${color} transition-all`}
+                style={{ height }}
+                title={`${formatUsd(d.usd)} — ${d.status}`}
+              />
+            );
+          })}
+        </div>
+        <div className="mt-2 flex items-center justify-between">
+          <span className="font-mono text-[9px] text-[#3b3d4a]">oldest</span>
+          <span className="font-mono text-[9px] text-[#6b6d7a]">
+            latest {formatUsd(data[data.length - 1]?.usd ?? 0)}
+          </span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /** Step-by-step breakdown for a single expanded run */
 function RunStepBreakdown({ steps }: { steps: Record<string, unknown>[] }) {
   // Group by unique step_name, show duration for each
@@ -173,7 +245,7 @@ function RunStepBreakdown({ steps }: { steps: Record<string, unknown>[] }) {
     if (artIdx < 0) seen.add(key);
 
     const started = step.started_at as string | null;
-    const ended = step.ended_at as string | null;
+    const ended = extractFinishedAt(step);
     let duration = 0;
     if (started && ended) {
       duration = Math.round((new Date(ended).getTime() - new Date(started).getTime()) / 1000);

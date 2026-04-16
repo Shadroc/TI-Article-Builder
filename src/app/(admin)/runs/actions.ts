@@ -82,17 +82,7 @@ export async function fetchDashboardData() {
   let latestSteps: Record<string, unknown>[] = [];
 
   if (runs.length > 0) {
-    // Include steps from multiple runs to persist logs over the day
-    // Use runs from the last 24 hours (or last 10 runs as fallback)
-    const cutoff = new Date();
-    cutoff.setHours(cutoff.getHours() - 24);
-    const cutoffIso = cutoff.toISOString();
-    const recentRunIds = (runs as { id: string; started_at?: string }[])
-      .filter((r) => (r.started_at ?? "") >= cutoffIso)
-      .map((r) => r.id)
-      .slice(0, 10); // cap at 10 runs max
-
-    const runIds = recentRunIds.length > 0 ? recentRunIds : [runs[0].id as string];
+    const runIds = runs.map((run) => run.id as string);
 
     const { data: steps } = await db
       .from("workflow_steps")

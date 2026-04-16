@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { createClient } from "@supabase/supabase-js";
 import { notFound } from "next/navigation";
+import { extractEstimatedCostUsd, extractFinishedAt, formatUsd } from "../runMetrics";
 
 async function getRunDetail(runId: string) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -72,6 +73,10 @@ export default async function RunDetailPage({ params }: { params: Promise<{ runI
     acc[idx].push(step);
     return acc;
   }, {});
+  const totalEstimatedCostUsd = steps.reduce(
+    (total, step) => total + extractEstimatedCostUsd(step as Record<string, unknown>),
+    0
+  );
 
   return (
     <div className="min-h-screen bg-[#0a0b0f] p-6 text-white">
@@ -88,7 +93,7 @@ export default async function RunDetailPage({ params }: { params: Promise<{ runI
             </div>
             <StatusBadge status={run.status} />
           </div>
-          <div className="mt-4 grid grid-cols-4 gap-4">
+          <div className="mt-4 grid grid-cols-5 gap-4">
             <div>
               <span className="font-mono text-[10px] text-[#3b3d4a]">Trigger</span>
               <p className="mt-0.5 font-mono text-xs capitalize text-[#8b8d9a]">{run.trigger}</p>
@@ -103,7 +108,11 @@ export default async function RunDetailPage({ params }: { params: Promise<{ runI
             </div>
             <div>
               <span className="font-mono text-[10px] text-[#3b3d4a]">Duration</span>
-              <p className="mt-0.5 font-mono text-xs text-[#8b8d9a]">{durationMs(run.started_at, run.finished_at)}</p>
+              <p className="mt-0.5 font-mono text-xs text-[#8b8d9a]">{durationMs(run.started_at, extractFinishedAt(run))}</p>
+            </div>
+            <div>
+              <span className="font-mono text-[10px] text-[#3b3d4a]">Est. AI Cost</span>
+              <p className="mt-0.5 font-mono text-xs text-[#8b8d9a]">{formatUsd(totalEstimatedCostUsd)}</p>
             </div>
           </div>
           {run.error && (
@@ -140,9 +149,16 @@ export default async function RunDetailPage({ params }: { params: Promise<{ runI
                           <p className="mt-1 font-mono text-[10px] text-red-400">{step.error as string}</p>
                         )}
                       </div>
-                      <span className="shrink-0 font-mono text-[10px] text-[#3b3d4a]">
-                        {durationMs(step.started_at as string, step.finished_at as string | null)}
-                      </span>
+                      <div className="shrink-0 text-right">
+                        <span className="block font-mono text-[10px] text-[#3b3d4a]">
+                          {durationMs(step.started_at as string, extractFinishedAt(step as Record<string, unknown>))}
+                        </span>
+                        {extractEstimatedCostUsd(step as Record<string, unknown>) > 0 && (
+                          <span className="mt-0.5 block font-mono text-[10px] text-[#8b8d9a]">
+                            {formatUsd(extractEstimatedCostUsd(step as Record<string, unknown>))}
+                          </span>
+                        )}
+                      </div>
                     </div>
                   ))}
                 </div>

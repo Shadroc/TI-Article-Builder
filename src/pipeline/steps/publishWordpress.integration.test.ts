@@ -28,7 +28,7 @@ describe.skipIf(SKIP)("publishWordpress MT RankMath integration", () => {
       throw new Error("MT site not found in sites table or not active");
     }
 
-    const mt = sites[0] as { id: string; name: string; slug: string; wp_base_url: string; category_map: Record<string, { id: number }> };
+    const mt = sites[0] as { id: string; name: string; slug: string; wp_base_url: string; active: boolean; category_map: Record<string, { id: number; color: string }> };
     const categoryId = Object.values(mt.category_map ?? {})[0]?.id ?? 1;
 
     const post = await createPost(

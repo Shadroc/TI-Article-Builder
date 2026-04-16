@@ -41,6 +41,8 @@ const mockImage: ProcessedImage = {
   sourceImageUrl: "https://source.test/image.jpg",
   subjectDescription: "A stock chart showing market trends",
   timingsMs: {},
+  costs: [],
+  estimatedCostUsd: 0,
 };
 
 describe("publishToWordPress", () => {
