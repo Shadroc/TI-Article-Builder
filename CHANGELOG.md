@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.1.3.1] - 2026-04-20
+
+### Fixed
+- Cron runs no longer show "Failed" in the dashboard while articles still appear as drafts. The per-site article upsert was erroring on a partial unique index that Postgres couldn't infer for `ON CONFLICT`, which marked every run failed after WordPress drafts had already published.
+
+### Changed
+- `supabase/migrations/011_ai_articles_unique_full.sql` replaces the partial unique index from migration 010 with a full unique index on `(rss_feed_id, site_id)`. `site_id` is `NOT NULL`, so the partial predicate was redundant and blocked `upsert({ onConflict })`.
+- `.gitignore` now matches `.env*.local` (catches `.env.production.local`, `.env.development.local`, etc.) instead of only `.env.local`.
+
 ## [0.1.3.0] - 2026-04-15
 
 ### Added
