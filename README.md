@@ -4,7 +4,7 @@ Automated financial article generation and multi-site WordPress publishing pipel
 
 ## Architecture
 
-- **Trigger**: Vercel Cron (daily at 06:00 UTC) or manual via admin dashboard
+- **Trigger**: Vercel Cron (daily at 13:00 UTC, morning Pacific time) or manual via admin dashboard
 - **Data**: Supabase (rss_feed, ai_articles, sites, workflow tracking, step metadata for timings and cost)
 - **AI**: Anthropic Claude (article writing), OpenAI GPT-4o (image selection, SEO, image editing)
 - **Images**: Google CSE image search, OpenAI image editing, Sharp resize/WebP
