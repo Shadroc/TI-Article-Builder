@@ -7,7 +7,7 @@ import { logger } from "@/lib/logger";
 export const dynamic = "force-dynamic";
 // Pro/Enterprise: up to 800s. Keep cron batches conservative to avoid timeout-driven failures.
 export const maxDuration = 800;
-const DEFAULT_CRON_MAX_ARTICLES = 2;
+const DEFAULT_CRON_MAX_ARTICLES = 5;
 
 export function getCronArticleCount(configuredArticleCount: number): number {
   const cronCap = env().CRON_MAX_ARTICLES ?? DEFAULT_CRON_MAX_ARTICLES;
@@ -40,7 +40,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "Failed to load pipeline config" }, { status: 500 });
     }
 
-    const configuredArticleCount = Math.min(config?.headlines_to_fetch ?? 6, 20);
+    const configuredArticleCount = Math.min(config?.headlines_to_fetch ?? 5, 20);
     const articleCount = getCronArticleCount(configuredArticleCount);
     const headlinesDate = config?.headlines_date ?? "today";
 

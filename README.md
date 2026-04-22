@@ -4,7 +4,7 @@ Automated financial article generation and multi-site WordPress publishing pipel
 
 ## Architecture
 
-- **Trigger**: Vercel Cron (daily at 06:00 UTC) or manual via admin dashboard
+- **Trigger**: Vercel Cron (daily at 13:00 UTC, morning Pacific time) or manual via admin dashboard
 - **Data**: Supabase (rss_feed, ai_articles, sites, workflow tracking, step metadata for timings and cost)
 - **AI**: Anthropic Claude (article writing), OpenAI GPT-4o (image selection, SEO, image editing)
 - **Images**: Google CSE image search, OpenAI image editing, Sharp resize/WebP
@@ -41,7 +41,7 @@ Run the migration in `supabase/migrations/001_workflow_tables.sql` against your 
 ## Deployment
 
 Deploy to Vercel. The cron schedule is configured in `vercel.json`.
-The cron route now applies a conservative batch cap by default to stay within Vercel function time limits. Override it with `CRON_MAX_ARTICLES` in Vercel if you have verified the pipeline can safely process a larger batch inside `maxDuration`.
+The cron route applies a conservative batch cap of 5 articles by default to stay within Vercel function time limits. Override it with `CRON_MAX_ARTICLES` in Vercel if you have verified the pipeline can safely process a different batch size inside `maxDuration`.
 
 ## API Endpoints
 

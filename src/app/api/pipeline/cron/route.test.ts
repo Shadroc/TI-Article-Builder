@@ -32,7 +32,7 @@ describe("cron route", () => {
     vi.useRealTimers();
     envMock.mockReturnValue({
       CRON_SECRET: "cron-secret",
-      CRON_MAX_ARTICLES: 2,
+      CRON_MAX_ARTICLES: 5,
     } as Env);
   });
 
@@ -69,7 +69,7 @@ describe("cron route", () => {
     } as never);
     runPipelineMock.mockResolvedValue({
       runId: "run-123",
-      articlesProcessed: 2,
+      articlesProcessed: 5,
       errors: [],
     });
 
@@ -81,19 +81,19 @@ describe("cron route", () => {
 
     expect(runPipelineMock).toHaveBeenCalledWith({
       trigger: "cron",
-      articleCount: 2,
+      articleCount: 5,
       headlinesDate: "today",
     });
     await expect(response.json()).resolves.toMatchObject({
       runId: "run-123",
       configuredArticleCount: 6,
-      effectiveArticleCount: 2,
+      effectiveArticleCount: 5,
     });
     expect(logger.warn).toHaveBeenCalledWith(
       "Cron article count clamped to avoid maxDuration timeout",
       expect.objectContaining({
         configuredArticleCount: 6,
-        effectiveArticleCount: 2,
+        effectiveArticleCount: 5,
       })
     );
   });
@@ -103,7 +103,7 @@ describe("cron route", () => {
       CRON_SECRET: "cron-secret",
     } as Env);
 
-    expect(getCronArticleCount(6)).toBe(2);
+    expect(getCronArticleCount(6)).toBe(5);
     expect(getCronArticleCount(1)).toBe(1);
   });
 

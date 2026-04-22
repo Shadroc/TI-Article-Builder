@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.1.4.0] - 2026-04-22
+
+### Changed
+- Morning cron runs now default to a 5-article cap when `CRON_MAX_ARTICLES` is not set.
+- Manual and retry pipeline fallbacks now use 5 articles to match the morning run target.
+- New and existing pipeline configuration defaults now set `headlines_to_fetch` to 5.
+
+### Added
+- Regression coverage for cron, manual, and retry route article-count fallbacks.
+
 ## [0.1.3.1] - 2026-04-20
 
 ### Fixed
