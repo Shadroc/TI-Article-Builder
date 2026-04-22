@@ -12,7 +12,7 @@ export async function triggerPipelineRun() {
     .limit(1)
     .single();
 
-  const articleCount = Math.min(config?.headlines_to_fetch ?? 6, 20);
+  const articleCount = Math.min(config?.headlines_to_fetch ?? 5, 20);
   const headlinesDate = config?.headlines_date ?? "today";
 
   after(() =>

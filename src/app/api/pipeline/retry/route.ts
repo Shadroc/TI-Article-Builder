@@ -18,7 +18,7 @@ export async function POST(request: NextRequest) {
     .limit(1)
     .single();
 
-  const articleCount = Math.min(config?.headlines_to_fetch ?? 6, 20);
+  const articleCount = Math.min(config?.headlines_to_fetch ?? 5, 20);
   const headlinesDate = config?.headlines_date ?? "today";
 
   const result = await runPipeline({ trigger: "manual", articleCount, headlinesDate });

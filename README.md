@@ -41,7 +41,7 @@ Run the migration in `supabase/migrations/001_workflow_tables.sql` against your 
 ## Deployment
 
 Deploy to Vercel. The cron schedule is configured in `vercel.json`.
-The cron route now applies a conservative batch cap by default to stay within Vercel function time limits. Override it with `CRON_MAX_ARTICLES` in Vercel if you have verified the pipeline can safely process a larger batch inside `maxDuration`.
+The cron route applies a conservative batch cap of 5 articles by default to stay within Vercel function time limits. Override it with `CRON_MAX_ARTICLES` in Vercel if you have verified the pipeline can safely process a different batch size inside `maxDuration`.
 
 ## API Endpoints
 
